@@ -34,7 +34,7 @@ pub fn init(name: []const u8, width: i32, height: i32) !Self {
         .ptr = init_glfw_ptr: {
             if (glfw.glfwCreateWindow(width, height, name.ptr, null, null)) |ptr| {
                 glfw.glfwMakeContextCurrent(ptr);
-                glfw.glfwSetInputMode(ptr, glfw.GLFW_CURSOR, glfw.GLFW_CURSOR_DISABLED);
+                // glfw.glfwSetInputMode(ptr, glfw.GLFW_CURSOR, glfw.GLFW_CURSOR_DISABLED);
 
                 if (glad.gladLoadGL() == 0) {
                     std.debug.print("Failed to initialize GLAD\n", .{});

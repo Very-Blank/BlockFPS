@@ -1,5 +1,6 @@
 const std = @import("std");
 const glad = @import("glad");
+const imgui = @import("imgui");
 const ecs = @import("ecs");
 const glfw = @import("glfw");
 const math = @import("math");
@@ -31,6 +32,22 @@ pub fn main(init: std.process.Init) !void {
 
     window.setCallbacks();
     window.sync(); // NOTE: We missed some window callbacks so we need to sync.
+    //
+    _ = imgui.ImGui_CreateContext(null);
+    defer imgui.ImGui_DestroyContext(null);
+
+    _ = imgui.cImGui_ImplOpenGL3_Init();
+    defer imgui.cImGui_ImplOpenGL3_Shutdown();
+    _ = imgui.cImGui_ImplGlfw_InitForOpenGL(@ptrCast(window.ptr), false);
+    defer imgui.cImGui_ImplGlfw_Shutdown();
+
+    imgui.ImGui_StyleColorsDark(null);
+    const imgui_io: *imgui.struct_ImGuiIO_t = imgui.ImGui_GetIO();
+
+    // // 4. Init backends (after context, before loop)
+    // _ = imgui.ImGui_ImplGlfw_InitForOpenGL(window, true);
+    // _ = imgui.ImGui(window, true);
+    // _ = imgui._impl_opengl3.ImGui_ImplOpenGL3_Init("#version 460");
 
     const rendering: Rendering = try .init(io, gpa);
     defer rendering.deinit();
@@ -124,6 +141,8 @@ pub fn main(init: std.process.Init) !void {
             rendering.draw(&tuple_iterator);
         }
 
+        renderUI(imgui_io);
+
         window.swapAndPoll();
     }
 
@@ -135,6 +154,42 @@ pub fn main(init: std.process.Init) !void {
     // }
     //
     // const io = init.io;
+}
+
+fn renderUI(_: *imgui.struct_ImGuiIO_t) void {
+    // imgui_io.DisplaySize.x = 1920;
+    // imgui_io.DisplaySize.y = 1080;
+    // imgui_io.DeltaTime = 1.0 / 60.0;
+
+    // 1. Start a new ImGui frame
+    imgui.cImGui_ImplOpenGL3_NewFrame();
+    imgui.cImGui_ImplGlfw_NewFrame();
+    imgui.ImGui_NewFrame();
+
+    // 2. Begin a window
+    _ = imgui.ImGui_Begin("My First Window", null, 0);
+
+    // --- Text ---
+    imgui.ImGui_Text("Hello from ImGui + Zig!");
+    imgui.ImGui_TextColored(.{ .x = 1.0, .y = 0.4, .z = 0.4, .w = 1.0 }, "This text is colored!");
+    imgui.ImGui_Separator();
+
+    // --- Buttons ---
+    if (imgui.ImGui_Button("Click Me")) {
+        std.debug.print("Button clicked!\n", .{});
+    }
+
+    imgui.ImGui_SameLine();
+
+    if (imgui.ImGui_ButtonEx("Other Button", .{ .x = 120, .y = 30 })) {
+        std.debug.print("Other button clicked!\n", .{});
+    }
+
+    imgui.ImGui_End();
+
+    imgui.ImGui_Render();
+
+    imgui.cImGui_ImplOpenGL3_RenderDrawData(imgui.ImGui_GetDrawData());
 }
 
 pub fn handlePlayerInput(window: *Window, player: struct { position: *Position, camera: *Camera }, delta_time: f32) void {

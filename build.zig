@@ -1,10 +1,20 @@
 const std = @import("std");
+const cimgui = @import("cimgui_zig");
+const Renderer = cimgui.Renderer;
+const Platform = cimgui.Platform;
 
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
     const glfw_dependency = b.dependency("glfw_zig", .{ .target = target, .optimize = optimize });
+    const imqui_dependency = b.dependency("cimgui_zig", .{
+        .target = target,
+        .optimize = optimize,
+        .platforms = &[_]Platform{.GLFW},
+        .renderers = &[_]Renderer{.OpenGL3},
+    });
+
     const math_dependency = b.dependency("ZigMath", .{ .target = target, .optimize = optimize });
     const ecs_dependency = b.dependency("ECS", .{ .target = target, .optimize = optimize });
 
@@ -47,6 +57,32 @@ pub fn build(b: *std.Build) void {
         },
     };
 
+    const imgui: std.Build.Module.Import = .{
+        .name = "imgui",
+        .module = init_imgui_module: {
+            const imgui_path = imqui_dependency.path("dcimgui/master/");
+
+            const write_files = b.addWriteFiles();
+            const imgui_header = write_files.add("imgui_all.h",
+                \\#include "dcimgui.h"
+                \\#include "backends/dcimgui_impl_glfw.h"
+                \\#include "backends/dcimgui_impl_opengl3.h"
+            );
+
+            const translate_c = b.addTranslateC(.{
+                .root_source_file = imgui_header,
+                .link_libc = true,
+                .optimize = optimize,
+                .target = target,
+            });
+
+            translate_c.addIncludePath(imgui_path);
+            translate_c.addIncludePath(imgui_path.path(b, "backends"));
+
+            break :init_imgui_module translate_c.createModule();
+        },
+    };
+
     const exe = b.addExecutable(.{
         .name = "NewFPS",
         .root_module = init_exe_module: {
@@ -57,12 +93,14 @@ pub fn build(b: *std.Build) void {
                 .imports = &.{
                     glad,
                     glfw,
+                    imgui,
                     .{ .name = "math", .module = math_dependency.module("zigmath") },
                     .{ .name = "ecs", .module = ecs_dependency.module("ecs") },
                 },
             });
 
             exe_module.linkLibrary(glfw_dependency.artifact("glfw"));
+            exe_module.linkLibrary(imqui_dependency.artifact("cimgui"));
 
             exe_module.addAfterIncludePath(glad_path.path(b, "include/"));
             exe_module.addCSourceFile(.{ .file = glad_path.path(b, "src/glad.c") });

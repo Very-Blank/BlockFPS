@@ -44,6 +44,10 @@
             .url = "git+https://github.com/Very-Blank/Ecs.git#4d1b08af156ead1310902de28306d6cff6e5b18a",
             .hash = "ECS-0.0.0-llhprbVRAQDy7ipsvytXoR-IEsToUIF_kb5FoREnQ4a0",
         },
+        .cimgui_zig = .{
+            .url = "git+https://github.com/tiawl/cimgui.zig.git#2bac244d45738974e5420a711343bc64643b8111",
+            .hash = "cimgui_zig-1.0.0-2XubksDUwQAdxbsKzYaP9loCIPPTimLDDqvz78lIuHJI",
+        },
     },
     .paths = .{
         "build.zig",

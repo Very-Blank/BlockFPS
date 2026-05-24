@@ -27,15 +27,14 @@
         name = "fetch";
         runtimeInputs = [pkgs.binutils];
         text = let
-          fetch = name: "${pkgs.lib.getExe pkgs.zig} fetch --save ${name}";
-        in (pkgs.lib.strings.concatStringsSep "\n"
-          (map fetch
-            [
-              "git+https://github.com/tiawl/glfw.zig.git"
-              "git+https://github.com/Very-Blank/ZigMath.git"
-              "git+https://github.com/Very-Blank/Ecs.git"
-              "git+https://github.com/tiawl/cimgui.zig.git"
-            ]));
+          fetch = name: "${pkgs.lib.getExe pkgs.zig} fetch --save ${name}\n";
+        in (pkgs.lib.strings.concatMapStrings fetch
+          [
+            "git+https://github.com/tiawl/glfw.zig.git"
+            "git+https://github.com/Very-Blank/ZigMath.git"
+            "git+https://github.com/Very-Blank/Ecs.git"
+            "git+https://github.com/tiawl/cimgui.zig.git"
+          ]);
       };
 
       tmux = inputs.nmux.mkPackage {
