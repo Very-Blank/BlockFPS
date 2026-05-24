@@ -30,7 +30,7 @@ pub fn main(init: std.process.Init) !void {
     defer window.deinit();
 
     window.setCallbacks();
-    window.sync(); // NOTE: we missed some window callbacks so we need to sync.
+    window.sync(); // NOTE: We missed some window callbacks so we need to sync.
 
     const rendering: Rendering = try .init(io, gpa);
     defer rendering.deinit();
@@ -50,7 +50,6 @@ pub fn main(init: std.process.Init) !void {
     const player_entity = ecs_engine.createEntity(.{
         Camera{
             .projection = .{ .far = 1000.0, .near = 0.001, .fov = 90 },
-            .offset = .{ .x = 0, .y = 0, .z = 0 },
             .rotation = .{ .pitch = 0.0, .yaw = 0.0 },
             .view = .initPerspective(
                 90.0,
@@ -59,7 +58,7 @@ pub fn main(init: std.process.Init) !void {
                 0.01,
             ),
         },
-        Position.one,
+        Position.zero,
     }, &.{});
 
     ecs_engine.setSingletonsEntity(player_singleton, player_entity) catch unreachable;

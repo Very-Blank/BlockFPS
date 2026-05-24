@@ -48,6 +48,12 @@ pub fn deinit(self: *const Self) void {
 pub fn draw(self: *const Self, iterator: *Ecs.TupleIterator(.{
     .include = ecs.Template{ .components = &.{ Position, Scale, Rotation, Model } },
 })) void {
+    std.debug.assert(started_rendering: {
+        var current: i32 = 0;
+        glad.glGetIntegerv(glad.GL_CURRENT_PROGRAM, &current);
+        break :started_rendering current == @as(i32, @intCast(self.program.id));
+    });
+
     while (iterator.next()) |tuple| {
         var mat: math.f32.Mat4 = .initModel(tuple[0].*, tuple[1].*, tuple[2].*);
         glad.glUniformMatrix4fv(self.program.getUniform("model"), 1, glad.GL_FALSE, &mat.fields[0][0]);

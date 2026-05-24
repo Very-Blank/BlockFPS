@@ -3,7 +3,6 @@ const math = @import("math");
 const Self = @This();
 
 view: math.f32.Mat4,
-offset: math.f32.Vector3,
 
 rotation: struct {
     pitch: f32,
