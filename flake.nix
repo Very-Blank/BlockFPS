@@ -1,5 +1,5 @@
 {
-  description = "Hip flake";
+  description = "Dev flake";
 
   # Info on development environments: https://nixos-and-flakes.thiscute.world/development/intro
 
@@ -28,10 +28,13 @@
         runtimeInputs = [pkgs.binutils];
         text = let
           fetch = name: "${pkgs.lib.getExe pkgs.zig} fetch --save ${name}";
-        in "${pkgs.lib.strings.concatStringsSep "\n" [
-          (fetch "git+https://github.com/tiawl/glfw.zig.git")
-          (fetch "git+https://github.com/Very-Blank/ZigMath.git")
-        ]}";
+        in "${pkgs.lib.strings.concatStringsSep "\n"
+          (map fetch
+            [
+              "git+https://github.com/tiawl/glfw.zig.git"
+              "git+https://github.com/Very-Blank/ZigMath.git"
+              "git+https://github.com/Very-Blank/Ecs.git"
+            ])}";
       };
 
       tmux = inputs.nmux.mkPackage {
@@ -83,10 +86,11 @@
           )
         ];
 
-        LD_LIBRARY_PATH =
-          pkgs.lib.makeLibraryPath [];
+        LD_LIBRARY_PATH = pkgs.lib.makeLibraryPath ["${pkgs.wayland}" "${pkgs.libxkbcommon}" "${pkgs.libGL}"];
 
+        # export LD_LIBRARY_PATH=${pkgs.wayland}/lib:$LD_LIBRARY_PATH
         shellHook = ''
+
           exec ${pkgs.lib.getExe' tmux "tmux"}
         '';
       };

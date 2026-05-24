@@ -36,6 +36,14 @@
             .url = "git+https://github.com/tiawl/glfw.zig.git#51f8fe1a0df9967c5a70bb4c557a729a8999e08a",
             .hash = "glfw_zig-1.0.0-NrvYoz_RGQCkG66DaikwieeG_pRVGzSwTr4oAcI9cTMb",
         },
+        .ZigMath = .{
+            .url = "git+https://github.com/Very-Blank/ZigMath.git#e1ce221fc73284e4caab9bb47f6b22e16f84e19d",
+            .hash = "ZigMath-0.0.0-M0fTGH2CAAA8IUTplcYj3oVxDXXEeTefwWLKgOVngWmH",
+        },
+        .ECS = .{
+            .url = "git+https://github.com/Very-Blank/Ecs.git#4d1b08af156ead1310902de28306d6cff6e5b18a",
+            .hash = "ECS-0.0.0-llhprbVRAQDy7ipsvytXoR-IEsToUIF_kb5FoREnQ4a0",
+        },
     },
     .paths = .{
         "build.zig",

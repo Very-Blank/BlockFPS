@@ -5,12 +5,14 @@ pub fn build(b: *std.Build) void {
     const optimize = b.standardOptimizeOption(.{});
 
     const glfw_dependency = b.dependency("glfw_zig", .{ .target = target, .optimize = optimize });
+    const math_dependency = b.dependency("ZigMath", .{ .target = target, .optimize = optimize });
+    const ecs_dependency = b.dependency("ECS", .{ .target = target, .optimize = optimize });
+
+    const glad_path = b.path("libs/glad/");
 
     const glad: std.Build.Module.Import = .{
         .name = "glad",
         .module = init_glad_module: {
-            const glad_path = b.path("libs/glad/");
-
             const translate_c = b.addTranslateC(
                 .{
                     .root_source_file = glad_path.path(b, "include/glad/glad.h"),
@@ -55,10 +57,15 @@ pub fn build(b: *std.Build) void {
                 .imports = &.{
                     glad,
                     glfw,
+                    .{ .name = "math", .module = math_dependency.module("zigmath") },
+                    .{ .name = "ecs", .module = ecs_dependency.module("ecs") },
                 },
             });
 
             exe_module.linkLibrary(glfw_dependency.artifact("glfw"));
+
+            exe_module.addAfterIncludePath(glad_path.path(b, "include/"));
+            exe_module.addCSourceFile(.{ .file = glad_path.path(b, "src/glad.c") });
 
             exe_module.addOptions("build_options", init_options: {
                 const options = b.addOptions();
