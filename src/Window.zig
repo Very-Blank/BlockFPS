@@ -95,6 +95,11 @@ pub fn setMouseMode(self: *Self, mode: enum { normal, captured, disabled }) void
         .captured => glfw.GLFW_CURSOR_CAPTURED,
         .normal => glfw.GLFW_CURSOR_NORMAL,
     });
+
+    switch (mode) { // BUG: GLFW doesn't hide the cursor all the time, at least in the wayland implementation.
+        .disabled => glfw.glfwSetCursor(self.ptr, null),
+        else => {},
+    }
 }
 
 // GLFWwindow* window, int width, int height

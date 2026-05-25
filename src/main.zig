@@ -38,12 +38,6 @@ pub fn main(init: std.process.Init) !void {
     var gui = ImGui.init(window);
     defer gui.deinit();
 
-    const rendering: Rendering = try .init(io, gpa);
-    defer rendering.deinit();
-
-    var ecs_engine: Ecs = .init(gpa);
-    defer ecs_engine.deinit();
-
     const DebugData: type = struct {
         spawn_pressed: bool = false,
         position: Position = .zero,
@@ -57,10 +51,6 @@ pub fn main(init: std.process.Init) !void {
         .data = .{},
         .draw = struct {
             pub fn draw(data: *DebugData) void {
-                // imgui.ImGui_Text("Hello from ImGui + Zig!");
-                // imgui.ImGui_TextColored(.{ .x = 1.0, .y = 0.4, .z = 0.4, .w = 1.0 }, "This text is colored!");
-                // imgui.ImGui_Separator();
-
                 if (imgui.ImGui_CollapsingHeader("Position", 0)) {
                     _ = imgui.ImGui_DragFloat3("X Y Z##pos", @ptrCast(&data.position));
                 }
@@ -79,6 +69,12 @@ pub fn main(init: std.process.Init) !void {
             }
         }.draw,
     };
+
+    const rendering: Rendering = try .init(io, gpa);
+    defer rendering.deinit();
+
+    var ecs_engine: Ecs = .init(gpa);
+    defer ecs_engine.deinit();
 
     const player_singleton = ecs_engine.createSingleton(.{ .components = &.{ Position, Camera } });
 
