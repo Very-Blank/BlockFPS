@@ -7,7 +7,11 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
-    const glfw_dependency = b.dependency("glfw_zig", .{ .target = target, .optimize = optimize });
+    const glfw_dependency = b.dependency("glfw_zig", .{
+        .target = target,
+        .optimize = optimize,
+    });
+
     const imqui_dependency = b.dependency("cimgui_zig", .{
         .target = target,
         .optimize = optimize,

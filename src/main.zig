@@ -8,6 +8,7 @@ const math = @import("math");
 const Io = std.Io;
 
 const Window = @import("Window.zig");
+const ImGui = @import("ImGui.zig");
 
 const Shader = @import("Shader.zig");
 const Program = @import("Program.zig");
@@ -32,28 +33,39 @@ pub fn main(init: std.process.Init) !void {
 
     window.setCallbacks();
     window.sync(); // NOTE: We missed some window callbacks so we need to sync.
-    //
-    _ = imgui.ImGui_CreateContext(null);
-    defer imgui.ImGui_DestroyContext(null);
+    window.setMouseMode(.disabled);
 
-    _ = imgui.cImGui_ImplOpenGL3_Init();
-    defer imgui.cImGui_ImplOpenGL3_Shutdown();
-    _ = imgui.cImGui_ImplGlfw_InitForOpenGL(@ptrCast(window.ptr), false);
-    defer imgui.cImGui_ImplGlfw_Shutdown();
-
-    imgui.ImGui_StyleColorsDark(null);
-    const imgui_io: *imgui.struct_ImGuiIO_t = imgui.ImGui_GetIO();
-
-    // // 4. Init backends (after context, before loop)
-    // _ = imgui.ImGui_ImplGlfw_InitForOpenGL(window, true);
-    // _ = imgui.ImGui(window, true);
-    // _ = imgui._impl_opengl3.ImGui_ImplOpenGL3_Init("#version 460");
+    var gui = ImGui.init(window);
+    defer gui.deinit();
 
     const rendering: Rendering = try .init(io, gpa);
     defer rendering.deinit();
 
     var ecs_engine: Ecs = .init(gpa);
     defer ecs_engine.deinit();
+
+    const DebugWindowType: type = struct {
+        spawn_pressed: bool = false,
+        position: Position = Position.zero,
+    };
+
+    var debug_window: ImGui.GuiWindow(DebugWindowType) = .{
+        .name = "Debug",
+        .open = false,
+        .data = .{},
+        .draw = struct {
+            pub fn draw(user_ptr: *DebugWindowType) void {
+                // imgui.ImGui_Text("Hello from ImGui + Zig!");
+                // imgui.ImGui_TextColored(.{ .x = 1.0, .y = 0.4, .z = 0.4, .w = 1.0 }, "This text is colored!");
+                // imgui.ImGui_Separator();
+
+                _ = imgui.ImGui_DragFloat3("Position X Y Z", @ptrCast(&user_ptr.position));
+                imgui.ImGui_Separator();
+
+                user_ptr.spawn_pressed = imgui.ImGui_Button("Spawn");
+            }
+        }.draw,
+    };
 
     const player_singleton = ecs_engine.createSingleton(.{ .components = &.{ Position, Camera } });
 
@@ -82,6 +94,8 @@ pub fn main(init: std.process.Init) !void {
 
     var lapsed_time: f64 = 0.0;
 
+    var ignore_input: bool = false;
+
     while (window.run()) {
         glad.glClear(glad.GL_COLOR_BUFFER_BIT | glad.GL_DEPTH_BUFFER_BIT);
         glad.glClearColor(66.0 / 245.0, 161.0 / 245.0, 245 / 245.0, 1.0);
@@ -92,6 +106,24 @@ pub fn main(init: std.process.Init) !void {
 
             break :outer @floatCast(delta_time);
         };
+
+        if (window.input.getKeyState(.escape) == .justPressed) {
+            window.setMouseMode(.captured);
+            debug_window.open = true;
+            ignore_input = true;
+        }
+
+        if (!debug_window.open) {
+            ignore_input = false;
+            window.setMouseMode(.disabled);
+        } else if (debug_window.data.spawn_pressed) {
+            _ = ecs_engine.createEntity(.{
+                debug_window.data.position,
+                Scale.one,
+                Rotation.identity,
+                Model.init(Model.cube),
+            }, &.{});
+        }
 
         update_view: {
             var iterator = ecs_engine.getIterator(.{ .component = Camera }) orelse break :update_view;
@@ -108,10 +140,11 @@ pub fn main(init: std.process.Init) !void {
                 const player_position = ecs_engine.getEntityComponent(player, Position) catch unreachable;
                 const player_camera = ecs_engine.getEntityComponent(player, Camera) catch unreachable;
 
-                handlePlayerInput(&window, .{
-                    .position = player_position,
-                    .camera = player_camera,
-                }, delta_time);
+                if (!ignore_input)
+                    handlePlayerInput(&window, .{
+                        .position = player_position,
+                        .camera = player_camera,
+                    }, delta_time);
 
                 break :init .{
                     math.f32.Mat4.initView(
@@ -141,7 +174,20 @@ pub fn main(init: std.process.Init) !void {
             rendering.draw(&tuple_iterator);
         }
 
-        renderUI(imgui_io);
+        gui.newFrame();
+
+        if (debug_window.open) {
+            if (gui.begin(&debug_window, 0)) {
+                debug_window.draw(&debug_window.data);
+            }
+
+            gui.end();
+            gui.render();
+        } else {
+            gui.endFrame();
+        }
+
+        ecs_engine.clearDestroyedEntitys();
 
         window.swapAndPoll();
     }
@@ -154,42 +200,6 @@ pub fn main(init: std.process.Init) !void {
     // }
     //
     // const io = init.io;
-}
-
-fn renderUI(_: *imgui.struct_ImGuiIO_t) void {
-    // imgui_io.DisplaySize.x = 1920;
-    // imgui_io.DisplaySize.y = 1080;
-    // imgui_io.DeltaTime = 1.0 / 60.0;
-
-    // 1. Start a new ImGui frame
-    imgui.cImGui_ImplOpenGL3_NewFrame();
-    imgui.cImGui_ImplGlfw_NewFrame();
-    imgui.ImGui_NewFrame();
-
-    // 2. Begin a window
-    _ = imgui.ImGui_Begin("My First Window", null, 0);
-
-    // --- Text ---
-    imgui.ImGui_Text("Hello from ImGui + Zig!");
-    imgui.ImGui_TextColored(.{ .x = 1.0, .y = 0.4, .z = 0.4, .w = 1.0 }, "This text is colored!");
-    imgui.ImGui_Separator();
-
-    // --- Buttons ---
-    if (imgui.ImGui_Button("Click Me")) {
-        std.debug.print("Button clicked!\n", .{});
-    }
-
-    imgui.ImGui_SameLine();
-
-    if (imgui.ImGui_ButtonEx("Other Button", .{ .x = 120, .y = 30 })) {
-        std.debug.print("Other button clicked!\n", .{});
-    }
-
-    imgui.ImGui_End();
-
-    imgui.ImGui_Render();
-
-    imgui.cImGui_ImplOpenGL3_RenderDrawData(imgui.ImGui_GetDrawData());
 }
 
 pub fn handlePlayerInput(window: *Window, player: struct { position: *Position, camera: *Camera }, delta_time: f32) void {

@@ -34,7 +34,6 @@ pub fn init(name: []const u8, width: i32, height: i32) !Self {
         .ptr = init_glfw_ptr: {
             if (glfw.glfwCreateWindow(width, height, name.ptr, null, null)) |ptr| {
                 glfw.glfwMakeContextCurrent(ptr);
-                // glfw.glfwSetInputMode(ptr, glfw.GLFW_CURSOR, glfw.GLFW_CURSOR_DISABLED);
 
                 if (glad.gladLoadGL() == 0) {
                     std.debug.print("Failed to initialize GLAD\n", .{});
@@ -90,6 +89,14 @@ pub fn sync(self: *Self) void {
     self.height = height;
 }
 
+pub fn setMouseMode(self: *Self, mode: enum { normal, captured, disabled }) void {
+    glfw.glfwSetInputMode(self.ptr, glfw.GLFW_CURSOR, switch (mode) {
+        .disabled => glfw.GLFW_CURSOR_DISABLED,
+        .captured => glfw.GLFW_CURSOR_CAPTURED,
+        .normal => glfw.GLFW_CURSOR_NORMAL,
+    });
+}
+
 // GLFWwindow* window, int width, int height
 export fn windowSizeCallback(glfw_window: ?*glfw.GLFWwindow, width: c_int, height: c_int) void {
     const window: *Self = @ptrCast(@alignCast(glfw.glfwGetWindowUserPointer(glfw_window).?));
@@ -112,12 +119,14 @@ export fn keyCallback(glfw_window: ?*glfw.GLFWwindow, key: c_int, _: c_int, acti
 export fn mouseButtonCallback(glfw_window: ?*glfw.GLFWwindow, key: c_int, action: c_int, _: c_int) void {
     const window: *Self = @ptrCast(@alignCast(glfw.glfwGetWindowUserPointer(glfw_window).?));
 
-    if (key == glfw.GLFW_MOUSE_BUTTON_LEFT) {
-        window.input.mouse_state.left_click = window.input.mouse_state.left_click.updateKeyState(action == glfw.GLFW_PRESS or action == glfw.GLFW_REPEAT);
-    }
-
-    if (key == glfw.GLFW_MOUSE_BUTTON_RIGHT) {
-        window.input.mouse_state.right_click = window.input.mouse_state.right_click.updateKeyState(action == glfw.GLFW_PRESS or action == glfw.GLFW_REPEAT);
+    switch (key) {
+        glfw.GLFW_MOUSE_BUTTON_LEFT => window.input.mouse_state.left_click = window.input.mouse_state.left_click.updateKeyState(
+            action == glfw.GLFW_PRESS or action == glfw.GLFW_REPEAT,
+        ),
+        glfw.GLFW_MOUSE_BUTTON_RIGHT => window.input.mouse_state.right_click = window.input.mouse_state.right_click.updateKeyState(
+            action == glfw.GLFW_PRESS or action == glfw.GLFW_REPEAT,
+        ),
+        else => {},
     }
 }
 
@@ -149,11 +158,11 @@ pub fn swapAndPoll(self: *Self) void {
     self.input.mouse_state.motion = .{ .x = 0.0, .y = 0.0 };
 
     inline for (.{ &self.input.mouse_state.left_click, &self.input.mouse_state.right_click }) |key| {
-        switch (key.*) {
-            .justPressed => key.* = .pressed,
-            .justReleased => key.* = .released,
-            else => {},
-        }
+        key.* = key.passFrame();
+    }
+
+    for (self.input.key_states, 0..) |key, i| {
+        self.input.key_states[i] = key.passFrame();
     }
 
     glfw.glfwSwapBuffers(self.ptr);
@@ -276,21 +285,24 @@ const KeyStateType = enum {
         return keyState == .justReleased or keyState == .released;
     }
 
+    pub inline fn passFrame(keyState: KeyStateType) KeyStateType {
+        return switch (keyState) {
+            .justPressed, .pressed => .pressed,
+            .justReleased, .released => .released,
+        };
+    }
+
     pub inline fn updateKeyState(keyState: KeyStateType, press: bool) KeyStateType {
         if (press) {
             return switch (keyState) {
-                .justPressed => .pressed,
-                .pressed => .pressed,
-                .justReleased => .justPressed,
-                .released => .justPressed,
+                .justPressed, .pressed => .pressed,
+                .justReleased, .released => .justPressed,
             };
         }
 
         return switch (keyState) {
-            .justPressed => .justReleased,
-            .pressed => .justReleased,
-            .justReleased => .released,
-            .released => .released,
+            .justPressed, .pressed => .justReleased,
+            .justReleased, .released => .released,
         };
     }
 };
