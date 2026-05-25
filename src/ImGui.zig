@@ -17,9 +17,18 @@ pub const Style = enum {
 pub fn GuiWindow(comptime T: type) type {
     return struct {
         name: [:0]const u8,
-        open: bool,
+        open: bool = true,
+        flags: i32 = 0,
         data: T,
-        draw: *const fn (ptr: *T) void,
+        draw: *const fn (data: *T) void,
+
+        pub inline fn drawWindow(self: *@This()) void {
+            if (self.open) {
+                if (imgui.ImGui_Begin(self.name, &(self.open), self.flags))
+                    self.draw(&self.data);
+                imgui.ImGui_End();
+            }
+        }
     };
 }
 
@@ -72,16 +81,4 @@ pub inline fn endFrame(_: *Self) void {
 pub inline fn render(_: *Self) void {
     imgui.ImGui_Render();
     imgui.cImGui_ImplOpenGL3_RenderDrawData(imgui.ImGui_GetDrawData());
-}
-
-/// You must call end if you call this.
-/// Return false to indicate the window is collapsed or fully clipped, so you may early out and omit submitting
-pub inline fn begin(_: *Self, window_ptr: anytype, flags: i32) bool {
-    comptime if (@typeInfo(@TypeOf(window_ptr)) != .pointer) @compileError("window_ptr must be a pointer");
-
-    return imgui.ImGui_Begin(window_ptr.name, &(window_ptr.open), flags);
-}
-
-pub inline fn end(_: *Self) void {
-    imgui.ImGui_End();
 }

@@ -44,25 +44,38 @@ pub fn main(init: std.process.Init) !void {
     var ecs_engine: Ecs = .init(gpa);
     defer ecs_engine.deinit();
 
-    const DebugWindowType: type = struct {
+    const DebugData: type = struct {
         spawn_pressed: bool = false,
-        position: Position = Position.zero,
+        position: Position = .zero,
+        scale: Scale = .one,
+        rotation: math.f32.Vector3 = .zero,
     };
 
-    var debug_window: ImGui.GuiWindow(DebugWindowType) = .{
+    var debug_window: ImGui.GuiWindow(DebugData) = .{
         .name = "Debug",
         .open = false,
         .data = .{},
         .draw = struct {
-            pub fn draw(user_ptr: *DebugWindowType) void {
+            pub fn draw(data: *DebugData) void {
                 // imgui.ImGui_Text("Hello from ImGui + Zig!");
                 // imgui.ImGui_TextColored(.{ .x = 1.0, .y = 0.4, .z = 0.4, .w = 1.0 }, "This text is colored!");
                 // imgui.ImGui_Separator();
 
-                _ = imgui.ImGui_DragFloat3("Position X Y Z", @ptrCast(&user_ptr.position));
+                if (imgui.ImGui_CollapsingHeader("Position", 0)) {
+                    _ = imgui.ImGui_DragFloat3("X Y Z##pos", @ptrCast(&data.position));
+                }
+
+                if (imgui.ImGui_CollapsingHeader("Scale", 0)) {
+                    _ = imgui.ImGui_DragFloat3("X Y Z##scale", @ptrCast(&data.scale));
+                }
+
+                if (imgui.ImGui_CollapsingHeader("Rotation", 0)) {
+                    _ = imgui.ImGui_DragFloat3("X Y Z##rot", @ptrCast(&data.rotation));
+                }
+
                 imgui.ImGui_Separator();
 
-                user_ptr.spawn_pressed = imgui.ImGui_Button("Spawn");
+                data.spawn_pressed = imgui.ImGui_Button("Spawn");
             }
         }.draw,
     };
@@ -119,8 +132,8 @@ pub fn main(init: std.process.Init) !void {
         } else if (debug_window.data.spawn_pressed) {
             _ = ecs_engine.createEntity(.{
                 debug_window.data.position,
-                Scale.one,
-                Rotation.identity,
+                debug_window.data.scale,
+                Rotation.initFromVector(debug_window.data.rotation),
                 Model.init(Model.cube),
             }, &.{});
         }
@@ -176,16 +189,11 @@ pub fn main(init: std.process.Init) !void {
 
         gui.newFrame();
 
-        if (debug_window.open) {
-            if (gui.begin(&debug_window, 0)) {
-                debug_window.draw(&debug_window.data);
-            }
+        debug_window.drawWindow();
 
-            gui.end();
-            gui.render();
-        } else {
-            gui.endFrame();
-        }
+        gui.render();
+
+        gui.endFrame();
 
         ecs_engine.clearDestroyedEntitys();
 
