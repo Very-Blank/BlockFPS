@@ -20,6 +20,8 @@ const Position = @import("components/position.zig").Position;
 const Rotation = @import("components/rotation.zig").Rotation;
 const Scale = @import("components/scale.zig").Scale;
 const Camera = @import("components/Camera.zig");
+const Collider = @import("components/collider.zig").Collider;
+const Rigidbody = @import("components/Rigidbody.zig");
 
 const Ecs = @import("ecs.zig").Ecs;
 const Template = ecs.Template;
@@ -48,8 +50,9 @@ pub fn main(init: std.process.Init) !void {
     var debug_window: ImGui.GuiWindow(DebugData) = .{
         .name = "Debug",
         .open = false,
+        .state = .closed,
         .data = .{},
-        .draw = struct {
+        .draw_fn = struct {
             pub fn draw(data: *DebugData) void {
                 if (imgui.ImGui_CollapsingHeader("Position", 0)) {
                     _ = imgui.ImGui_DragFloat3("X Y Z##pos", @ptrCast(&data.position));
@@ -85,6 +88,24 @@ pub fn main(init: std.process.Init) !void {
         Model.init(Model.cube),
     }, &.{});
 
+    _ = ecs_engine.createEntity(.{
+        Position{ .y = 0.5 },
+        Scale.one,
+        Rotation.identity,
+        Model.init(Model.cube),
+        Collider.one,
+        Rigidbody{},
+    }, &.{});
+
+    _ = ecs_engine.createEntity(.{
+        Position.zero,
+        Scale.one,
+        Rotation.identity,
+        Model.init(Model.cube),
+        Collider.one,
+        Rigidbody{},
+    }, &.{});
+
     const player_entity = ecs_engine.createEntity(.{
         Camera{
             .projection = .{ .far = 1000.0, .near = 0.001, .fov = 90 },
@@ -116,20 +137,28 @@ pub fn main(init: std.process.Init) !void {
             break :outer @floatCast(delta_time);
         };
 
-        if (window.input.getKeyState(.escape) == .justPressed) {
-            window.setMouseMode(.captured);
-            debug_window.open = true;
-            ignore_input = true;
+        update_physics: {
+            var tuple_iterator = if (ecs_engine.getTupleIterator(.{
+                .include = ecs.Template{ .components = &.{ Position, Collider, Rigidbody } },
+            })) |tuple_iterator| tuple_iterator else break :update_physics;
+
+            simulatePhysics(delta_time, &tuple_iterator);
         }
 
-        if (!debug_window.open) {
+        if (window.input.getKeyState(.escape) == .justPressed) {
+            ignore_input = true;
+            window.setMouseMode(.captured);
+            debug_window.setOpenState(true);
+        }
+
+        if (debug_window.state == .just_closed) {
             ignore_input = false;
             window.setMouseMode(.disabled);
-        } else if (debug_window.data.spawn_pressed) {
+        } else if (debug_window.state.isOpen() and debug_window.data.spawn_pressed) {
             _ = ecs_engine.createEntity(.{
                 debug_window.data.position,
                 debug_window.data.scale,
-                Rotation.initFromVector(debug_window.data.rotation),
+                Rotation.initFromVector(debug_window.data.rotation.segment(std.math.pi)),
                 Model.init(Model.cube),
             }, &.{});
         }
@@ -185,7 +214,7 @@ pub fn main(init: std.process.Init) !void {
 
         gui.newFrame();
 
-        debug_window.drawWindow();
+        debug_window.draw();
 
         gui.render();
 
@@ -204,6 +233,115 @@ pub fn main(init: std.process.Init) !void {
     // }
     //
     // const io = init.io;
+}
+
+pub fn simulatePhysics(delta_time: f32, iterator: *Ecs.TupleIterator(.{
+    .include = ecs.Template{ .components = &.{ Position, Collider, Rigidbody } },
+})) void {
+    const gravity: f32 = -0.01;
+
+    while (iterator.next()) |body| {
+        const rigidbody: *Rigidbody = body[2];
+
+        rigidbody.velocity.y += gravity;
+    }
+
+    iterator.reset();
+
+    while (iterator.next()) |body1| {
+        var inner_iterator = iterator.*;
+
+        while (inner_iterator.next()) |body2| {
+            if (collision(body1, body2)) {
+                const amount = overlap(body1, body2);
+
+                const body1_pos: *Position = body1[0];
+                const body1_rb: *Rigidbody = body1[2];
+
+                const body2_pos: *Position = body2[0];
+                const body2_rb: *Rigidbody = body2[2];
+
+                std.debug.assert(body1_rb.mass != 0.0);
+                std.debug.assert(body2_rb.mass != 0.0);
+
+                const scale: f32 = body2_rb.mass / (body1_rb.mass + body2_rb.mass);
+
+                body1_pos.* = body1_pos.add(amount.scale(scale));
+                body2_pos.* = body2_pos.add(amount.scale(1.0 - scale).negate());
+            }
+        }
+    }
+
+    iterator.reset();
+
+    while (iterator.next()) |body| {
+        const position: *Position = body[0];
+        const rigidbody: *Rigidbody = body[2];
+
+        position.* = position.add(rigidbody.velocity.scale(delta_time));
+    }
+}
+
+pub inline fn collision(
+    body1: struct { *Position, *Collider, *Rigidbody },
+    body2: struct { *Position, *Collider, *Rigidbody },
+) bool {
+    const body1_pos = body1[0];
+    const body1_col = body1[1];
+
+    const body2_pos = body2[0];
+    const body2_col = body2[1];
+
+    inline for (.{ "x", "y", "z" }) |axis| {
+        if (!collide(
+            @field(body2_pos, axis) - @field(body2_col, axis),
+            @field(body1_pos, axis) - @field(body1_col, axis),
+            @field(body1_pos, axis) + @field(body1_col, axis),
+        ) and !collide(
+            @field(body2_pos, axis) + @field(body2_col, axis),
+            @field(body1_pos, axis) - @field(body1_col, axis),
+            @field(body1_pos, axis) + @field(body1_col, axis),
+        )) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+pub inline fn collide(a: f32, min: f32, max: f32) bool {
+    return min <= a and a <= max;
+}
+
+pub inline fn overlap(
+    body1: struct { *Position, *Collider, *Rigidbody },
+    body2: struct { *Position, *Collider, *Rigidbody },
+) math.f32.Vector3 {
+    return .{
+        .x = axisOverlap("x", body1, body2),
+        .y = axisOverlap("y", body1, body2),
+        .z = axisOverlap("z", body1, body2),
+    };
+}
+
+pub inline fn axisOverlap(
+    comptime axis: []const u8,
+    body1: struct { *Position, *Collider, *Rigidbody },
+    body2: struct { *Position, *Collider, *Rigidbody },
+) f32 {
+    const body1_pos = body1[0];
+    const body1_col = body1[1];
+
+    const body2_pos = body2[0];
+    const body2_col = body2[1];
+
+    const min1 = @field(body1_pos, axis) - @field(body1_col, axis);
+    const max1 = @field(body1_pos, axis) + @field(body1_col, axis);
+
+    const min2 = @field(body2_pos, axis) - @field(body2_col, axis);
+    const max2 = @field(body2_pos, axis) + @field(body2_col, axis);
+
+    return @max(@min(min1 + min2, max1 - min2), @min(min1 + max2, max1 - max2));
 }
 
 pub fn handlePlayerInput(window: *Window, player: struct { position: *Position, camera: *Camera }, delta_time: f32) void {

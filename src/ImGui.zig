@@ -17,17 +17,59 @@ pub const Style = enum {
 pub fn GuiWindow(comptime T: type) type {
     return struct {
         name: [:0]const u8,
-        open: bool = true,
+        open: bool,
         flags: i32 = 0,
+        state: State,
         data: T,
-        draw: *const fn (data: *T) void,
+        draw_fn: *const fn (data: *T) void,
 
-        pub inline fn drawWindow(self: *@This()) void {
+        pub const State = enum {
+            just_opened,
+            open,
+            just_closed,
+            closed,
+
+            pub inline fn isOpen(state: State) bool {
+                return (state == .just_opened or state == .open);
+            }
+        };
+
+        pub inline fn setOpenState(self: *@This(), open: bool) void {
+            self.open = open;
+
+            if (self.open) {
+                self.state = switch (self.state) {
+                    .just_opened, .open => .open,
+                    else => .just_opened,
+                };
+
+                return;
+            }
+
+            self.state = switch (self.state) {
+                .just_opened, .open => .just_closed,
+                else => .closed,
+            };
+        }
+
+        pub inline fn draw(self: *@This()) void {
             if (self.open) {
                 if (imgui.ImGui_Begin(self.name, &(self.open), self.flags))
-                    self.draw(&self.data);
+                    self.draw_fn(&self.data);
                 imgui.ImGui_End();
+
+                self.state = switch (self.state) {
+                    .just_opened, .open => .open,
+                    else => .just_opened,
+                };
+
+                return;
             }
+
+            self.state = switch (self.state) {
+                .just_opened, .open => .just_closed,
+                else => .closed,
+            };
         }
     };
 }
