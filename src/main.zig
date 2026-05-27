@@ -168,8 +168,6 @@ pub fn main(init: std.process.Init) !void {
 
     var ignore_input: bool = false;
 
-    var physics_time: f32 = 0.0;
-
     while (window.run()) {
         glad.glClear(glad.GL_COLOR_BUFFER_BIT | glad.GL_DEPTH_BUFFER_BIT);
         glad.glClearColor(66.0 / 245.0, 161.0 / 245.0, 245 / 245.0, 1.0);
@@ -181,12 +179,7 @@ pub fn main(init: std.process.Init) !void {
             break :outer @floatCast(delta_time);
         };
 
-        physics_time += delta_time;
-
-        if (0.01 <= physics_time) {
-            physics.update(physics_time, &ecs_engine);
-            physics_time = 0;
-        }
+        physics.update(delta_time, &ecs_engine);
 
         if (window.input.getKeyState(.escape) == .justPressed) {
             ignore_input = true;
@@ -227,7 +220,7 @@ pub fn main(init: std.process.Init) !void {
                         .camera = player_camera,
                     }, delta_time);
 
-                    if (window.input.mouse_state.left_click.isDown()) {
+                    if (window.input.mouse_state.left_click == .justPressed) {
                         const forward = math.f32.Vector3.forward
                             .rotateAroundAxis(.x, player_camera.rotation.pitch)
                             .rotateAroundAxis(.y, player_camera.rotation.yaw)
@@ -240,10 +233,8 @@ pub fn main(init: std.process.Init) !void {
                             Rotation.identity,
                             ModelInstance.cube,
                             Collider{ .x = 0.1, .y = 0.1, .z = 0.1 },
-                            Rigidbody{ .velocity = forward.scale(10.0), .restitution = 1.0, .mass = 0.1 },
+                            Rigidbody{ .velocity = forward.scale(20.0), .restitution = 1.0, .mass = 0.1 },
                         }, &.{});
-                    } else if (window.input.mouse_state.left_click == .justReleased) {
-                        std.debug.print("entity count: {any}\n", .{ecs_engine.entity_count});
                     }
                 }
 

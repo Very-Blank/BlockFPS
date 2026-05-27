@@ -53,7 +53,9 @@ pub fn simulateSbRb(
                 body1_pos.* = body1_pos.add(normal.scale(depth));
 
                 const dot = body1_rb.velocity.dot(normal);
-                body1_rb.velocity = body1_rb.velocity.subtract(normal.scale(1.65 * dot * body1_rb.restitution));
+                // const len = body1_rb.velocity.length();
+
+                body1_rb.velocity = body1_rb.velocity.subtract(normal.scale(dot).scale(1 + body1_rb.restitution * 0.5));
             }
         }
 
