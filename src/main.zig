@@ -17,6 +17,7 @@ const Program = @import("Program.zig");
 const Rendering = @import("Rendering.zig");
 
 const Model = @import("components/Model.zig");
+const ModelInstance = @import("components/model_instance.zig").ModelInstance;
 const Position = @import("components/position.zig").Position;
 const Rotation = @import("components/rotation.zig").Rotation;
 const Scale = @import("components/scale.zig").Scale;
@@ -77,16 +78,56 @@ pub fn main(init: std.process.Init) !void {
     const rendering: Rendering = try .init(io, gpa);
     defer rendering.deinit();
 
-    var ecs_engine: Ecs = .init(gpa);
+    const buffer: []u8 = try gpa.alloc(u8, 4_000_000);
+    defer gpa.free(buffer);
+    var fba: std.heap.FixedBufferAllocator = .init(buffer);
+    var ecs_engine: Ecs = .init(fba.allocator());
     defer ecs_engine.deinit();
 
     const player_singleton = ecs_engine.createSingleton(.{ .components = &.{ Position, Camera } });
 
     _ = ecs_engine.createEntity(.{
-        Position.zero,
-        Scale.one,
+        Position{ .y = -0.5 },
+        Scale{ .x = 20, .y = 0.5, .z = 20 },
         Rotation.identity,
         Model.init(Model.cube),
+        Collider{ .x = 20.0, .y = 0.5, .z = 20.0 },
+    }, &.{});
+
+    // Wall: -Z (front)
+    _ = ecs_engine.createEntity(.{
+        Position{ .x = 0, .y = 2.0, .z = -10.25 },
+        Scale{ .x = 20, .y = 5.0, .z = 0.5 },
+        Rotation.identity,
+        Model.init(Model.cube),
+        Collider{ .x = 20.0, .y = 5.0, .z = 0.5 },
+    }, &.{});
+
+    // Wall: +Z (back)
+    _ = ecs_engine.createEntity(.{
+        Position{ .x = 0, .y = 2.0, .z = 10.25 },
+        Scale{ .x = 20, .y = 5.0, .z = 0.5 },
+        Rotation.identity,
+        Model.init(Model.cube),
+        Collider{ .x = 20.0, .y = 5.0, .z = 0.5 },
+    }, &.{});
+
+    // Wall: -X (left)
+    _ = ecs_engine.createEntity(.{
+        Position{ .x = -10.25, .y = 2.0, .z = 0 },
+        Scale{ .x = 0.5, .y = 5.0, .z = 20 },
+        Rotation.identity,
+        Model.init(Model.cube),
+        Collider{ .x = 0.5, .y = 5.0, .z = 20.0 },
+    }, &.{});
+
+    // Wall: +X (right)
+    _ = ecs_engine.createEntity(.{
+        Position{ .x = 10.25, .y = 2.0, .z = 0 },
+        Scale{ .x = 0.5, .y = 5.0, .z = 20 },
+        Rotation.identity,
+        Model.init(Model.cube),
+        Collider{ .x = 0.5, .y = 5.0, .z = 20.0 },
     }, &.{});
 
     _ = ecs_engine.createEntity(.{
@@ -95,7 +136,7 @@ pub fn main(init: std.process.Init) !void {
         Rotation.identity,
         Model.init(Model.cube),
         Collider.one,
-        Rigidbody{ .velocity = .{ .y = -0.5 }, .restitution = 0.5 },
+        Rigidbody{ .velocity = .{ .y = -0.5 }, .restitution = 0.5, .mass = 10.0 },
     }, &.{});
 
     _ = ecs_engine.createEntity(.{
@@ -104,7 +145,7 @@ pub fn main(init: std.process.Init) !void {
         Rotation.identity,
         Model.init(Model.cube),
         Collider.one,
-        Rigidbody{ .restitution = 0.5 },
+        Rigidbody{ .restitution = 0.5, .mass = 10.0 },
     }, &.{});
 
     const player_entity = ecs_engine.createEntity(.{
@@ -127,6 +168,8 @@ pub fn main(init: std.process.Init) !void {
 
     var ignore_input: bool = false;
 
+    var physics_time: f32 = 0.0;
+
     while (window.run()) {
         glad.glClear(glad.GL_COLOR_BUFFER_BIT | glad.GL_DEPTH_BUFFER_BIT);
         glad.glClearColor(66.0 / 245.0, 161.0 / 245.0, 245 / 245.0, 1.0);
@@ -138,12 +181,11 @@ pub fn main(init: std.process.Init) !void {
             break :outer @floatCast(delta_time);
         };
 
-        update_physics: {
-            var tuple_iterator = if (ecs_engine.getTupleIterator(.{
-                .include = ecs.Template{ .components = &.{ Position, Collider, Rigidbody } },
-            })) |tuple_iterator| tuple_iterator else break :update_physics;
+        physics_time += delta_time;
 
-            physics.simulateRb(delta_time, &tuple_iterator);
+        if (0.01 <= physics_time) {
+            physics.update(physics_time, &ecs_engine);
+            physics_time = 0;
         }
 
         if (window.input.getKeyState(.escape) == .justPressed) {
@@ -179,11 +221,31 @@ pub fn main(init: std.process.Init) !void {
                 const player_position = ecs_engine.getEntityComponent(player, Position) catch unreachable;
                 const player_camera = ecs_engine.getEntityComponent(player, Camera) catch unreachable;
 
-                if (!ignore_input)
+                if (!ignore_input) {
                     handlePlayerInput(&window, .{
                         .position = player_position,
                         .camera = player_camera,
                     }, delta_time);
+
+                    if (window.input.mouse_state.left_click.isDown()) {
+                        const forward = math.f32.Vector3.forward
+                            .rotateAroundAxis(.x, player_camera.rotation.pitch)
+                            .rotateAroundAxis(.y, player_camera.rotation.yaw)
+                            .normalize()
+                            .negate();
+
+                        _ = ecs_engine.createEntity(.{
+                            player_position.add(forward),
+                            Scale{ .x = 0.1, .y = 0.1, .z = 0.1 },
+                            Rotation.identity,
+                            ModelInstance.cube,
+                            Collider{ .x = 0.1, .y = 0.1, .z = 0.1 },
+                            Rigidbody{ .velocity = forward.scale(10.0), .restitution = 1.0, .mass = 0.1 },
+                        }, &.{});
+                    } else if (window.input.mouse_state.left_click == .justReleased) {
+                        std.debug.print("entity count: {any}\n", .{ecs_engine.entity_count});
+                    }
+                }
 
                 break :init .{
                     math.f32.Mat4.initView(
@@ -210,7 +272,32 @@ pub fn main(init: std.process.Init) !void {
             glad.glUniformMatrix4fv(rendering.program.getUniform("view"), 1, glad.GL_FALSE, &view_matrix.fields[0][0]);
             glad.glUniformMatrix4fv(rendering.program.getUniform("projection"), 1, glad.GL_FALSE, &projection_matrix.fields[0][0]);
 
-            rendering.draw(&tuple_iterator);
+            rendering.drawModels(&tuple_iterator);
+        }
+
+        render: {
+            var tuple_iterator = if (ecs_engine.getTupleIterator(.{
+                .include = ecs.Template{ .components = &.{ Position, Scale, Rotation, ModelInstance } },
+            })) |tuple_iterator| tuple_iterator else break :render;
+
+            rendering.startRender();
+
+            glad.glUniformMatrix4fv(rendering.program.getUniform("view"), 1, glad.GL_FALSE, &view_matrix.fields[0][0]);
+            glad.glUniformMatrix4fv(rendering.program.getUniform("projection"), 1, glad.GL_FALSE, &projection_matrix.fields[0][0]);
+
+            rendering.drawIntances(&tuple_iterator);
+        }
+
+        destroy: {
+            var iterator = if (ecs_engine.getIterator(.{
+                .component = Position,
+            })) |iterator| iterator else break :destroy;
+
+            while (iterator.next()) |position| {
+                if (position.y < -100.0) {
+                    ecs_engine.destroyEntity(iterator.getCurrentEntity());
+                }
+            }
         }
 
         gui.newFrame();

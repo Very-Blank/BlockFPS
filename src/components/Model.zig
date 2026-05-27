@@ -96,7 +96,15 @@ pub fn deinit(self: *Self) void {
     glad.glDeleteVertexArrays(1, &self.vao);
 }
 
-pub fn draw(self: *const Self) void {
+pub inline fn bindVertex(self: *const Self) void {
+    glad.glBindVertexArray(self.vao);
+}
+
+pub inline fn drawElements(self: *const Self) void {
+    glad.glDrawElements(glad.GL_TRIANGLES, @intCast(self.len), glad.GL_UNSIGNED_INT, null);
+}
+
+pub inline fn draw(self: *const Self) void {
     glad.glBindVertexArray(self.vao);
     glad.glDrawElements(glad.GL_TRIANGLES, @intCast(self.len), glad.GL_UNSIGNED_INT, null);
     glad.glBindVertexArray(0);
