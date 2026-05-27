@@ -43,7 +43,7 @@ pub fn simulateSbRb(
                 const normal, const depth = init_info: {
                     var info = overlap(rigidbody, staticbody);
                     const depth = info.length();
-                    if (depth < 0.000000001) continue;
+                    if (depth == 0.0) continue;
 
                     const normal = info.normalize();
 
@@ -53,9 +53,8 @@ pub fn simulateSbRb(
                 body1_pos.* = body1_pos.add(normal.scale(depth));
 
                 const dot = body1_rb.velocity.dot(normal);
-                // const len = body1_rb.velocity.length();
 
-                body1_rb.velocity = body1_rb.velocity.subtract(normal.scale(dot).scale(1 + body1_rb.restitution * 0.5));
+                body1_rb.velocity = body1_rb.velocity.subtract(normal.scale(dot).scale(body1_rb.restitution));
             }
         }
 
@@ -66,13 +65,11 @@ pub fn simulateSbRb(
 pub fn simulateRb(delta_time: f32, iterator: *Ecs.TupleIterator(.{
     .include = ecs.Template{ .components = &.{ Position, Collider, Rigidbody } },
 })) void {
-    const gravity: f32 = 9.81;
-    const friction: f32 = 0.0025;
+    const friction: f32 = 0.0005;
 
     while (iterator.next()) |body| {
         const rigidbody: *Rigidbody = body[2];
-
-        rigidbody.velocity.y -= gravity * delta_time;
+        rigidbody.velocity.y += rigidbody.gravity * delta_time;
         rigidbody.velocity = rigidbody.velocity.scale(1.0 - friction);
     }
 
@@ -98,7 +95,7 @@ pub fn simulateRb(delta_time: f32, iterator: *Ecs.TupleIterator(.{
                 const normal, const depth = init_info: {
                     var info = overlap(body1, body2);
                     const depth = info.length();
-                    if (depth < 0.000000001) continue;
+                    if (0.0 == depth) continue;
 
                     const normal = info.normalize();
 
@@ -112,14 +109,14 @@ pub fn simulateRb(delta_time: f32, iterator: *Ecs.TupleIterator(.{
 
                 const e = (body1_rb.restitution + body2_rb.restitution) / 2.0;
 
-                const @"m_a*v_a + m_b*v_b" = body1_rb.velocity.scale(body1_rb.mass).add(body2_rb.velocity.scale(body2_rb.mass));
-                const @"m_a+m_b" = body1_rb.mass + body2_rb.mass;
+                const v_1 = normal.scale(body1_rb.velocity.dot(normal));
+                const v_2 = normal.scale(body2_rb.velocity.dot(normal));
 
-                const v_a = body1_rb.velocity;
-                const v_b = body2_rb.velocity;
+                const @"m_1*v_1 + m_2*v_1" = v_1.scale(body1_rb.mass).add(v_2.scale(body2_rb.mass));
+                const @"m_1+m_2" = body1_rb.mass + body2_rb.mass;
 
-                body1_rb.velocity = @"m_a*v_a + m_b*v_b".add(v_b.subtract(v_a).scale(e * body2_rb.mass)).segment(@"m_a+m_b");
-                body2_rb.velocity = @"m_a*v_a + m_b*v_b".add(v_a.subtract(v_b).scale(e * body1_rb.mass)).segment(@"m_a+m_b");
+                body1_rb.velocity = body1_rb.velocity.subtract(v_1).add(@"m_1*v_1 + m_2*v_1".add(v_2.subtract(v_1).scale(e * body2_rb.mass)).segment(@"m_1+m_2"));
+                body2_rb.velocity = body2_rb.velocity.subtract(v_2).add(@"m_1*v_1 + m_2*v_1".add(v_1.subtract(v_2).scale(e * body1_rb.mass)).segment(@"m_1+m_2"));
             }
         }
     }

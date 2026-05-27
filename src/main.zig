@@ -233,7 +233,7 @@ pub fn main(init: std.process.Init) !void {
                             Rotation.identity,
                             ModelInstance.cube,
                             Collider{ .x = 0.1, .y = 0.1, .z = 0.1 },
-                            Rigidbody{ .velocity = forward.scale(20.0), .restitution = 1.0, .mass = 0.1 },
+                            Rigidbody{ .velocity = forward.scale(20.0), .gravity = -0.5, .restitution = 1.5, .mass = 0.1 },
                         }, &.{});
                     }
                 }
