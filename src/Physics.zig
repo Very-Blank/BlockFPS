@@ -13,6 +13,16 @@ const Sphere = Collider.Sphere;
 const Capsule = Collider.Capsule;
 const Box = Collider.Box;
 
+// collisions: std.AutoHashMapUnmanaged(
+//     ecs.EntityPointer,
+//     Collision,
+// ),
+
+pub const Collision = struct {
+    normal: math.f32.Vector3,
+    depth: f32,
+};
+
 const Info = struct {
     normal: math.f32.Vector3,
     depth: f32,
@@ -104,6 +114,8 @@ pub fn simulateRb(delta_time: f32, iterator: *Ecs.TupleIterator(.{
                 body1_pos.* = body1_pos.add(normal.scale(ratio * info.depth));
                 body2_pos.* = body2_pos.add(normal.scale((1.0 - ratio) * info.depth).negate());
 
+                if (0 <= body1_rb.velocity.subtract(body2_rb.velocity).dot(normal)) continue;
+
                 const e = (body1_rb.restitution + body2_rb.restitution) / 2.0;
 
                 const v_1 = normal.scale(body1_rb.velocity.dot(normal));
@@ -130,6 +142,7 @@ pub fn simulateRb(delta_time: f32, iterator: *Ecs.TupleIterator(.{
 
 /// Collision normal isn't guaranteed to be relative to any body.
 pub inline fn collision(body1: struct { position: Position, collider: Collider }, body2: struct { position: Position, collider: Collider }) ?Info {
+    // FIXME: Write this in a better clean way!
     return switch (body1.collider) {
         .sphere => |sphere1| switch (body2.collider) {
             .sphere => |sphere2| sphereVsSphere(.{
@@ -139,7 +152,20 @@ pub inline fn collision(body1: struct { position: Position, collider: Collider }
                 .position = body2.position,
                 .sphere = sphere2,
             }),
-            else => unreachable,
+            .capsule => |capsule2| sphereVsCapsule(.{
+                .position = body1.position,
+                .sphere = sphere1,
+            }, .{
+                .position = body2.position,
+                .capsule = capsule2,
+            }),
+            .box => |box2| sphereVsBox(.{
+                .position = body1.position,
+                .sphere = sphere1,
+            }, .{
+                .position = body2.position,
+                .box = box2,
+            }),
         },
         .capsule => |capsule1| switch (body2.collider) {
             .capsule => |capsule2| capsuleVsCapsule(.{
@@ -149,7 +175,20 @@ pub inline fn collision(body1: struct { position: Position, collider: Collider }
                 .position = body2.position,
                 .capsule = capsule2,
             }),
-            else => unreachable,
+            .sphere => |sphere2| sphereVsCapsule(.{
+                .position = body2.position,
+                .sphere = sphere2,
+            }, .{
+                .position = body1.position,
+                .capsule = capsule1,
+            }),
+            .box => |box2| capsuleVsBox(.{
+                .position = body1.position,
+                .capsule = capsule1,
+            }, .{
+                .position = body2.position,
+                .box = box2,
+            }),
         },
         .box => |box1| switch (body2.collider) {
             .box => |box2| boxVsBox(.{
@@ -159,10 +198,25 @@ pub inline fn collision(body1: struct { position: Position, collider: Collider }
                 .position = body2.position,
                 .box = box2,
             }),
-            else => unreachable,
+            .capsule => |capsule2| capsuleVsBox(.{
+                .position = body2.position,
+                .capsule = capsule2,
+            }, .{
+                .position = body1.position,
+                .box = box1,
+            }),
+            .sphere => |sphere2| sphereVsBox(.{
+                .position = body2.position,
+                .sphere = sphere2,
+            }, .{
+                .position = body1.position,
+                .box = box1,
+            }),
         },
     };
 }
+
+// FIXME: Checking distance != 0.0 isn't good enough.
 
 pub fn sphereVsSphere(
     body1: struct { position: Position, sphere: Sphere },
@@ -173,11 +227,105 @@ pub fn sphereVsSphere(
 
     return .{
         .depth = body1.sphere.radius + body2.sphere.radius - distance,
-        .normal = (math.f32.Vector3{
+        .normal = if (distance != 0.0) (math.f32.Vector3{
             .x = body2.position.x - body1.position.x,
             .y = body2.position.y - body1.position.y,
             .z = body2.position.z - body1.position.z,
-        }).normalize(),
+        }).normalize() else .zero,
+    };
+}
+
+pub fn sphereVsCapsule(
+    body1: struct { position: Position, sphere: Sphere },
+    body2: struct { position: Position, capsule: Capsule },
+) ?Info {
+    const closest = Position.closestPointOnLine(Position{
+        .x = body2.position.x,
+        .y = body2.position.y - body2.capsule.length / 2,
+        .z = body2.position.z,
+    }, Position{
+        .x = body2.position.x,
+        .y = body2.position.y + body2.capsule.length / 2,
+        .z = body2.position.z,
+    }, body1.position);
+
+    const distance = body1.position.distance(closest);
+
+    if (body1.sphere.radius + body2.capsule.radius < distance) return null;
+
+    return .{
+        .depth = body1.sphere.radius + body2.capsule.radius - distance,
+        .normal = if (distance != 0.0) (math.f32.Vector3{
+            .x = body1.position.x - closest.x,
+            .y = body1.position.y - closest.y,
+            .z = body1.position.z - closest.z,
+        }).normalize() else .zero,
+    };
+}
+
+pub fn sphereVsBox(
+    body1: struct { position: Position, sphere: Sphere },
+    body2: struct { position: Position, box: Box },
+) ?Info {
+    var closest: math.f32.Vector3 = .{};
+
+    inline for (.{ "x", "y", "z" }) |axis| {
+        const min2 = @field(body2.position, axis) - @field(body2.box, axis) / 2.0;
+        const max2 = @field(body2.position, axis) + @field(body2.box, axis) / 2.0;
+        @field(closest, axis) = std.math.clamp(@field(body1.position, axis), min2, max2);
+    }
+
+    const difference: math.f32.Vector3 = .{
+        .x = body1.position.x - closest.x,
+        .y = body1.position.y - closest.y,
+        .z = body1.position.z - closest.z,
+    };
+
+    const distance = difference.length();
+
+    if (body1.sphere.radius < distance) return null;
+
+    return .{
+        .depth = body1.sphere.radius - distance,
+        .normal = if (distance != 0.0) difference.normalize() else .zero,
+    };
+}
+
+pub fn capsuleVsBox(
+    body1: struct { position: Position, capsule: Capsule },
+    body2: struct { position: Position, box: Box },
+) ?Info {
+    const closest_body1_point = Position.closestPointOnLine(Position{
+        .x = body1.position.x,
+        .y = body1.position.y - body1.capsule.length / 2,
+        .z = body1.position.z,
+    }, Position{
+        .x = body1.position.x,
+        .y = body1.position.y + body1.capsule.length / 2,
+        .z = body1.position.z,
+    }, body2.position);
+
+    var closest: math.f32.Vector3 = .{};
+
+    inline for (.{ "x", "y", "z" }) |axis| {
+        const min2 = @field(body2.position, axis) - @field(body2.box, axis) / 2.0;
+        const max2 = @field(body2.position, axis) + @field(body2.box, axis) / 2.0;
+        @field(closest, axis) = std.math.clamp(@field(closest_body1_point, axis), min2, max2);
+    }
+
+    const difference: math.f32.Vector3 = .{
+        .x = closest_body1_point.x - closest.x,
+        .y = closest_body1_point.y - closest.y,
+        .z = closest_body1_point.z - closest.z,
+    };
+
+    const distance = difference.length();
+
+    if (body1.capsule.radius < distance) return null;
+
+    return .{
+        .depth = body1.capsule.radius - distance,
+        .normal = if (distance != 0.0) difference.normalize() else .zero,
     };
 }
 
@@ -205,13 +353,19 @@ pub fn capsuleVsCapsule(
         .z = body2.position.z,
     }, body1.position);
 
-    if (body1.capsule.radius + body2.capsule.radius < body1_closest.distance(body2_closest)) return null;
+    const difference: math.f32.Vector3 = .{
+        .x = body1_closest.x - body2_closest.x,
+        .y = body1_closest.y - body2_closest.y,
+        .z = body1_closest.z - body2_closest.z,
+    };
 
-    const normal = body1_closest.subtract(body2_closest).normalize();
+    const distance = difference.length();
+
+    if (body1.capsule.radius + body2.capsule.radius < distance) return null;
 
     return .{
-        .depth = body1.capsule.radius + body2.capsule.radius - body1_closest.distance(body2_closest),
-        .normal = .{ .x = normal.x, .y = normal.y, .z = normal.z },
+        .depth = body1.capsule.radius + body2.capsule.radius - distance,
+        .normal = if (distance != 0) difference.normalize() else .zero,
     };
 }
 

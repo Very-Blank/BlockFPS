@@ -11,9 +11,8 @@ const Rigidbody = @import("components/Rigidbody.zig");
 
 pub const Ecs = ecs.Ecs(&.{
     ecs.Template{ .components = &.{ Position, Scale, Rotation, ModelInstance, Collider, Rigidbody } },
-
     ecs.Template{ .components = &.{ Position, Scale, Rotation, Model, Collider, Rigidbody } },
     ecs.Template{ .components = &.{ Position, Scale, Rotation, Model, Collider } },
     ecs.Template{ .components = &.{ Position, Scale, Rotation, Model } },
-    ecs.Template{ .components = &.{ Position, Camera } },
+    ecs.Template{ .components = &.{ Position, Collider, Rigidbody, Camera } }, // NOTE: Player
 });

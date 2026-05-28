@@ -84,7 +84,7 @@ pub fn main(init: std.process.Init) !void {
     var ecs_engine: Ecs = .init(fba.allocator());
     defer ecs_engine.deinit();
 
-    const player_singleton = ecs_engine.createSingleton(.{ .components = &.{ Position, Camera } });
+    const player_singleton = ecs_engine.createSingleton(.{ .components = &.{ Position, Rigidbody, Camera } });
 
     _ = ecs_engine.createEntity(.{
         Position{ .y = -0.5 },
@@ -149,6 +149,9 @@ pub fn main(init: std.process.Init) !void {
     }, &.{});
 
     const player_entity = ecs_engine.createEntity(.{
+        Position{ .x = -3, .y = 1.1 },
+        Rigidbody{ .mass = 5.0 },
+        Collider{ .capsule = .{ .radius = 0.5, .length = 2 } },
         Camera{
             .projection = .{ .far = 1000.0, .near = 0.001, .fov = 90 },
             .rotation = .{ .pitch = 0.0, .yaw = 0.0 },
@@ -159,7 +162,6 @@ pub fn main(init: std.process.Init) !void {
                 0.01,
             ),
         },
-        Position.zero,
     }, &.{});
 
     ecs_engine.setSingletonsEntity(player_singleton, player_entity) catch unreachable;
@@ -210,29 +212,29 @@ pub fn main(init: std.process.Init) !void {
         }
 
         var view_matrix, var projection_matrix = init: {
-            if (ecs_engine.getSingletonsEntity(player_singleton)) |player| {
-                const player_position = ecs_engine.getEntityComponent(player, Position) catch unreachable;
-                const player_camera = ecs_engine.getEntityComponent(player, Camera) catch unreachable;
+            if (ecs_engine.getSingletonsEntity(player_singleton)) |id| {
+                const player: Player = .{
+                    .position = ecs_engine.getEntityComponent(id, Position) catch unreachable,
+                    .rigidbody = ecs_engine.getEntityComponent(id, Rigidbody) catch unreachable,
+                    .camera = ecs_engine.getEntityComponent(id, Camera) catch unreachable,
+                };
 
                 if (!ignore_input) {
-                    handlePlayerInput(&window, .{
-                        .position = player_position,
-                        .camera = player_camera,
-                    }, delta_time);
+                    handlePlayerInput(&window, player, delta_time);
 
                     if (window.input.mouse_state.left_click == .justPressed) {
                         const forward = math.f32.Vector3.forward
-                            .rotateAroundAxis(.x, player_camera.rotation.pitch)
-                            .rotateAroundAxis(.y, player_camera.rotation.yaw)
+                            .rotateAroundAxis(.x, player.camera.rotation.pitch)
+                            .rotateAroundAxis(.y, player.camera.rotation.yaw)
                             .normalize()
                             .negate();
 
                         _ = ecs_engine.createEntity(.{
-                            player_position.add(forward),
+                            player.position.add(forward),
                             Scale{ .x = 0.1, .y = 0.1, .z = 0.1 },
                             Rotation.identity,
                             ModelInstance.cube,
-                            Collider{ .box = .{ .x = 0.1, .y = 0.1, .z = 0.1 } },
+                            Collider{ .sphere = .{ .radius = 0.1 } },
                             Rigidbody{ .velocity = forward.scale(20.0), .gravity = -0.5, .restitution = 1.5, .mass = 0.1 },
                         }, &.{});
                     }
@@ -240,13 +242,13 @@ pub fn main(init: std.process.Init) !void {
 
                 break :init .{
                     math.f32.Mat4.initView(
-                        player_position.negate(),
+                        player.position.negate(),
                         math.f32.Quaternion.initCamRotation(
-                            -player_camera.rotation.yaw,
-                            -player_camera.rotation.pitch,
+                            -player.camera.rotation.yaw,
+                            -player.camera.rotation.pitch,
                         ),
                     ),
-                    player_camera.view,
+                    player.camera.view,
                 };
             }
 
@@ -303,18 +305,11 @@ pub fn main(init: std.process.Init) !void {
 
         window.swapAndPoll();
     }
-
-    // const arena: std.mem.Allocator = init.arena.allocator();
-    //
-    // const args = try init.minimal.args.toSlice(arena);
-    // for (args) |arg| {
-    //     std.log.info("arg: {s}", .{arg});
-    // }
-    //
-    // const io = init.io;
 }
 
-pub fn handlePlayerInput(window: *Window, player: struct { position: *Position, camera: *Camera }, delta_time: f32) void {
+const Player = struct { position: *Position, rigidbody: *Rigidbody, camera: *Camera };
+
+pub fn handlePlayerInput(window: *Window, player: Player, delta_time: f32) void {
     player.camera.rotation.yaw -= window.input.mouse_state.motion.x;
     player.camera.rotation.pitch += window.input.mouse_state.motion.y;
 
@@ -331,15 +326,19 @@ pub fn handlePlayerInput(window: *Window, player: struct { position: *Position, 
     if (window.input.getKeyState(.a).isDown()) {
         movement_input.x -= 1.0;
     }
-    if (window.input.getKeyState(.space).isDown()) {
-        movement_input.y += 1.0;
-    }
-    if (window.input.getKeyState(.left_control).isDown()) {
-        movement_input.y -= 1.0;
-    }
+    // if (window.input.getKeyState(.space).isDown()) {
+    //     movement_input.y += 1.0;
+    // }
+    // if (window.input.getKeyState(.left_control).isDown()) {
+    //     movement_input.y -= 1.0;
+    // }
 
     if (movement_input.length() > 0.0) {
-        movement_input = movement_input.normalize();
-        player.position.* = player.position.add(movement_input.rotateAroundAxis(.y, player.camera.rotation.yaw).scale(10 * delta_time));
+        movement_input = movement_input.normalize().rotateAroundAxis(.y, player.camera.rotation.yaw).scale(1000 * delta_time);
+        player.rigidbody.velocity.x = movement_input.x;
+        player.rigidbody.velocity.z = movement_input.z;
+    } else {
+        player.rigidbody.velocity.x = 0.0;
+        player.rigidbody.velocity.z = 0.0;
     }
 }
