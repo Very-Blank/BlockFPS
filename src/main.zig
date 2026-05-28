@@ -91,7 +91,7 @@ pub fn main(init: std.process.Init) !void {
         Scale{ .x = 20, .y = 0.5, .z = 20 },
         Rotation.identity,
         Model.init(Model.cube),
-        Collider{ .x = 20.0, .y = 0.5, .z = 20.0 },
+        Collider{ .box = .{ .x = 20.0, .y = 0.5, .z = 20.0 } },
     }, &.{});
 
     // Wall: -Z (front)
@@ -100,7 +100,7 @@ pub fn main(init: std.process.Init) !void {
         Scale{ .x = 20, .y = 5.0, .z = 0.5 },
         Rotation.identity,
         Model.init(Model.cube),
-        Collider{ .x = 20.0, .y = 5.0, .z = 0.5 },
+        Collider{ .box = .{ .x = 20.0, .y = 5.0, .z = 0.5 } },
     }, &.{});
 
     // Wall: +Z (back)
@@ -109,7 +109,7 @@ pub fn main(init: std.process.Init) !void {
         Scale{ .x = 20, .y = 5.0, .z = 0.5 },
         Rotation.identity,
         Model.init(Model.cube),
-        Collider{ .x = 20.0, .y = 5.0, .z = 0.5 },
+        Collider{ .box = .{ .x = 20.0, .y = 5.0, .z = 0.5 } },
     }, &.{});
 
     // Wall: -X (left)
@@ -118,7 +118,7 @@ pub fn main(init: std.process.Init) !void {
         Scale{ .x = 0.5, .y = 5.0, .z = 20 },
         Rotation.identity,
         Model.init(Model.cube),
-        Collider{ .x = 0.5, .y = 5.0, .z = 20.0 },
+        Collider{ .box = .{ .x = 0.5, .y = 5.0, .z = 20.0 } },
     }, &.{});
 
     // Wall: +X (right)
@@ -127,7 +127,7 @@ pub fn main(init: std.process.Init) !void {
         Scale{ .x = 0.5, .y = 5.0, .z = 20 },
         Rotation.identity,
         Model.init(Model.cube),
-        Collider{ .x = 0.5, .y = 5.0, .z = 20.0 },
+        Collider{ .box = .{ .x = 0.5, .y = 5.0, .z = 20.0 } },
     }, &.{});
 
     _ = ecs_engine.createEntity(.{
@@ -135,7 +135,7 @@ pub fn main(init: std.process.Init) !void {
         Scale.one,
         Rotation.identity,
         Model.init(Model.cube),
-        Collider.one,
+        Collider{ .box = .one },
         Rigidbody{ .velocity = .{ .y = -0.5 }, .restitution = 0.5, .mass = 10.0 },
     }, &.{});
 
@@ -144,7 +144,7 @@ pub fn main(init: std.process.Init) !void {
         Scale.one,
         Rotation.identity,
         Model.init(Model.cube),
-        Collider.one,
+        Collider{ .box = .one },
         Rigidbody{ .restitution = 0.5, .mass = 10.0 },
     }, &.{});
 
@@ -232,7 +232,7 @@ pub fn main(init: std.process.Init) !void {
                             Scale{ .x = 0.1, .y = 0.1, .z = 0.1 },
                             Rotation.identity,
                             ModelInstance.cube,
-                            Collider{ .x = 0.1, .y = 0.1, .z = 0.1 },
+                            Collider{ .box = .{ .x = 0.1, .y = 0.1, .z = 0.1 } },
                             Rigidbody{ .velocity = forward.scale(20.0), .gravity = -0.5, .restitution = 1.5, .mass = 0.1 },
                         }, &.{});
                     }

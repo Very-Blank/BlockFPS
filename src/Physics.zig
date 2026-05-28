@@ -9,6 +9,15 @@ const Position = @import("components/position.zig").Position;
 const Collider = @import("components/collider.zig").Collider;
 const Rigidbody = @import("components/Rigidbody.zig");
 
+const Sphere = Collider.Sphere;
+const Capsule = Collider.Capsule;
+const Box = Collider.Box;
+
+const Info = struct {
+    normal: math.f32.Vector3,
+    depth: f32,
+};
+
 pub fn update(delta_time: f32, ecs_engine: *Ecs) void {
     var rigidbodies = if (ecs_engine.getTupleIterator(.{
         .include = ecs.Template{ .components = &.{ Position, Collider, Rigidbody } },
@@ -34,23 +43,16 @@ pub fn simulateSbRb(
 ) void {
     while (rigidbodies.next()) |rigidbody| {
         while (staticbodies.next()) |staticbody| {
-            if (collision(rigidbody, staticbody)) {
+            if (collision(
+                .{ .position = rigidbody[0].*, .collider = rigidbody[1].* },
+                .{ .position = staticbody[0].*, .collider = staticbody[1].* },
+            )) |info| {
                 const body1_pos: *Position = rigidbody[0];
                 const body1_rb: *Rigidbody = rigidbody[2];
 
-                const body2_pos: *Position = staticbody[0];
+                const normal = if (body1_pos.subtract(staticbody[0].*).dot(info.normal) < 0) info.normal.negate() else info.normal;
 
-                const normal, const depth = init_info: {
-                    var info = overlap(rigidbody, staticbody);
-                    const depth = info.length();
-                    if (depth == 0.0) continue;
-
-                    const normal = info.normalize();
-
-                    break :init_info .{ if (body1_pos.subtract(body2_pos.*).dot(normal) < 0) normal.negate() else normal, depth };
-                };
-
-                body1_pos.* = body1_pos.add(normal.scale(depth));
+                body1_pos.* = body1_pos.add(normal.scale(info.depth));
 
                 const dot = body1_rb.velocity.dot(normal);
 
@@ -82,7 +84,10 @@ pub fn simulateRb(delta_time: f32, iterator: *Ecs.TupleIterator(.{
         inner_iterator.current_buffer = iterator.current_buffer;
 
         while (inner_iterator.next()) |body2| {
-            if (collision(body1, body2)) {
+            if (collision(
+                .{ .position = body1[0].*, .collider = body1[1].* },
+                .{ .position = body2[0].*, .collider = body2[1].* },
+            )) |info| {
                 const body1_pos: *Position = body1[0];
                 const body1_rb: *Rigidbody = body1[2];
 
@@ -92,20 +97,12 @@ pub fn simulateRb(delta_time: f32, iterator: *Ecs.TupleIterator(.{
                 std.debug.assert(body1_rb.mass != 0.0);
                 std.debug.assert(body2_rb.mass != 0.0);
 
-                const normal, const depth = init_info: {
-                    var info = overlap(body1, body2);
-                    const depth = info.length();
-                    if (0.0 == depth) continue;
-
-                    const normal = info.normalize();
-
-                    break :init_info .{ if (body1_pos.subtract(body2_pos.*).dot(normal) < 0) normal.negate() else normal, depth };
-                };
+                const normal = if (body1_pos.subtract(body2_pos.*).dot(info.normal) < 0) info.normal.negate() else info.normal;
 
                 const ratio: f32 = body2_rb.mass / (body1_rb.mass + body2_rb.mass);
 
-                body1_pos.* = body1_pos.add(normal.scale(ratio * depth));
-                body2_pos.* = body2_pos.add(normal.scale((1.0 - ratio) * depth).negate());
+                body1_pos.* = body1_pos.add(normal.scale(ratio * info.depth));
+                body2_pos.* = body2_pos.add(normal.scale((1.0 - ratio) * info.depth).negate());
 
                 const e = (body1_rb.restitution + body2_rb.restitution) / 2.0;
 
@@ -131,58 +128,112 @@ pub fn simulateRb(delta_time: f32, iterator: *Ecs.TupleIterator(.{
     }
 }
 
-pub inline fn collision(
-    body1: anytype,
-    body2: anytype,
-) bool {
-    const body1_pos: *Position = body1[0];
-    const body1_col: *Collider = body1[1];
+/// Collision normal isn't guaranteed to be relative to any body.
+pub inline fn collision(body1: struct { position: Position, collider: Collider }, body2: struct { position: Position, collider: Collider }) ?Info {
+    return switch (body1.collider) {
+        .sphere => |sphere1| switch (body2.collider) {
+            .sphere => |sphere2| sphereVsSphere(.{
+                .position = body1.position,
+                .sphere = sphere1,
+            }, .{
+                .position = body2.position,
+                .sphere = sphere2,
+            }),
+            else => unreachable,
+        },
+        .capsule => |capsule1| switch (body2.collider) {
+            .capsule => |capsule2| capsuleVsCapsule(.{
+                .position = body1.position,
+                .capsule = capsule1,
+            }, .{
+                .position = body2.position,
+                .capsule = capsule2,
+            }),
+            else => unreachable,
+        },
+        .box => |box1| switch (body2.collider) {
+            .box => |box2| boxVsBox(.{
+                .position = body1.position,
+                .box = box1,
+            }, .{
+                .position = body2.position,
+                .box = box2,
+            }),
+            else => unreachable,
+        },
+    };
+}
 
-    const body2_pos: *Position = body2[0];
-    const body2_col: *Collider = body2[1];
+pub fn sphereVsSphere(
+    body1: struct { position: Position, sphere: Sphere },
+    body2: struct { position: Position, sphere: Sphere },
+) ?Info {
+    const distance = body1.position.distance(body2.position);
+    if (body1.sphere.radius + body2.sphere.radius < distance) return null;
+
+    return .{
+        .depth = body1.sphere.radius + body2.sphere.radius - distance,
+        .normal = (math.f32.Vector3{
+            .x = body2.position.x - body1.position.x,
+            .y = body2.position.y - body1.position.y,
+            .z = body2.position.z - body1.position.z,
+        }).normalize(),
+    };
+}
+
+pub fn capsuleVsCapsule(
+    body1: struct { position: Position, capsule: Capsule },
+    body2: struct { position: Position, capsule: Capsule },
+) ?Info {
+    const body1_closest = Position.closestPointOnLine(Position{
+        .x = body1.position.x,
+        .y = body1.position.y - body1.capsule.length / 2,
+        .z = body1.position.z,
+    }, Position{
+        .x = body1.position.x,
+        .y = body1.position.y + body1.capsule.length / 2,
+        .z = body1.position.z,
+    }, body2.position);
+
+    const body2_closest = Position.closestPointOnLine(Position{
+        .x = body2.position.x,
+        .y = body2.position.y - body2.capsule.length / 2,
+        .z = body2.position.z,
+    }, Position{
+        .x = body2.position.x,
+        .y = body2.position.y + body2.capsule.length / 2,
+        .z = body2.position.z,
+    }, body1.position);
+
+    if (body1.capsule.radius + body2.capsule.radius < body1_closest.distance(body2_closest)) return null;
+
+    const normal = body1_closest.subtract(body2_closest).normalize();
+
+    return .{
+        .depth = body1.capsule.radius + body2.capsule.radius - body1_closest.distance(body2_closest),
+        .normal = .{ .x = normal.x, .y = normal.y, .z = normal.z },
+    };
+}
+
+pub fn boxVsBox(
+    body1: struct { position: Position, box: Box },
+    body2: struct { position: Position, box: Box },
+) ?Info {
+    var fields: math.f32.Vector3 = .zero;
 
     inline for (.{ "x", "y", "z" }) |axis| {
-        const min = @field(body1_pos, axis) - @field(body1_col, axis) / 2.0;
-        const max = @field(body1_pos, axis) + @field(body1_col, axis) / 2.0;
+        const min1 = @field(body1.position, axis) - @field(body1.box, axis) / 2.0;
+        const max1 = @field(body1.position, axis) + @field(body1.box, axis) / 2.0;
 
-        const a = @field(body2_pos, axis) - @field(body2_col, axis) / 2.0;
-        const b = @field(body2_pos, axis) + @field(body2_col, axis) / 2.0;
+        const min2 = @field(body2.position, axis) - @field(body2.box, axis) / 2.0;
+        const max2 = @field(body2.position, axis) + @field(body2.box, axis) / 2.0;
 
-        if (b < min or max < a) return false;
+        if (max2 < min1 or max1 < min2) return null;
+
+        @field(fields, axis) = @min(max1, max2) - @max(min1, min2);
     }
 
-    return true;
-}
-
-pub inline fn overlap(
-    body1: anytype,
-    body2: anytype,
-) math.f32.Vector3 {
-    const x = axisOverlap("x", body1, body2);
-    const y = axisOverlap("y", body1, body2);
-    const z = axisOverlap("z", body1, body2);
-
-    if (x <= y and x <= z) return .{ .x = x };
-    if (y <= x and y <= z) return .{ .y = y };
-    return .{ .z = z };
-}
-
-pub inline fn axisOverlap(
-    comptime axis: []const u8,
-    body1: anytype,
-    body2: anytype,
-) f32 {
-    const body1_pos: *Position = body1[0];
-    const body1_col: *Collider = body1[1];
-
-    const body2_pos: *Position = body2[0];
-    const body2_col: *Collider = body2[1];
-
-    const min1 = @field(body1_pos, axis) - @field(body1_col, axis) / 2.0;
-    const max1 = @field(body1_pos, axis) + @field(body1_col, axis) / 2.0;
-
-    const min2 = @field(body2_pos, axis) - @field(body2_col, axis) / 2.0;
-    const max2 = @field(body2_pos, axis) + @field(body2_col, axis) / 2.0;
-
-    return @min(max1, max2) - @max(min1, min2);
+    if (fields.x <= fields.y and fields.x <= fields.z) return .{ .depth = fields.x, .normal = .{ .x = 1 } };
+    if (fields.y <= fields.x and fields.y <= fields.z) return .{ .depth = fields.y, .normal = .{ .y = 1 } };
+    return .{ .depth = fields.z, .normal = .{ .z = 1 } };
 }
