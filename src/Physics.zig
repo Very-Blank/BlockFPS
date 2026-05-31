@@ -13,22 +13,39 @@ const Sphere = Collider.Sphere;
 const Capsule = Collider.Capsule;
 const Box = Collider.Box;
 
-// collisions: std.AutoHashMapUnmanaged(
-//     ecs.EntityPointer,
-//     Collision,
-// ),
+collisions: std.ArrayList(Collision) = .empty,
+infos: std.ArrayList(Info) = .empty,
+allocator: std.mem.Allocator,
+
+const Self = @This();
 
 pub const Collision = struct {
+    body1: ecs.EntityPointer,
+    body2: ecs.EntityPointer,
+};
+
+pub const Info = struct {
     normal: math.f32.Vector3,
     depth: f32,
 };
 
-const Info = struct {
-    normal: math.f32.Vector3,
-    depth: f32,
-};
+pub fn init(allocator: std.mem.Allocator) Self {
+    return .{
+        .allocator = allocator,
+    };
+}
 
-pub fn update(delta_time: f32, ecs_engine: *Ecs) void {
+pub fn deinit(self: *Self) void {
+    self.collisions.deinit(self.allocator);
+    self.infos.deinit(self.allocator);
+}
+
+pub fn clear(self: *Self) void {
+    self.collisions.clearRetainingCapacity();
+    self.infos.clearRetainingCapacity();
+}
+
+pub fn update(self: *Self, delta_time: f32, ecs_engine: *Ecs) void {
     var rigidbodies = if (ecs_engine.getTupleIterator(.{
         .include = ecs.Template{ .components = &.{ Position, Collider, Rigidbody } },
     })) |tuple_iterator| tuple_iterator else return;
@@ -39,14 +56,15 @@ pub fn update(delta_time: f32, ecs_engine: *Ecs) void {
             .exclude = ecs.Template{ .components = &.{Rigidbody} },
         })) |tuple_iterator| tuple_iterator else break :update_sb_rb_physics;
 
-        simulateSbRb(delta_time, &rigidbodies, &staticbodies);
+        self.simulateSbRb(delta_time, &rigidbodies, &staticbodies);
         rigidbodies.reset();
     }
 
-    simulateRb(delta_time, &rigidbodies);
+    self.simulateRb(delta_time, &rigidbodies);
 }
 
 pub fn simulateSbRb(
+    self: *Self,
     _: f32,
     rigidbodies: *Ecs.TupleIterator(.{ .include = .{ .components = &.{ Position, Collider, Rigidbody } } }),
     staticbodies: *Ecs.TupleIterator(.{ .include = .{ .components = &.{ Position, Collider } }, .exclude = .{ .components = &.{Rigidbody} } }),
@@ -65,8 +83,19 @@ pub fn simulateSbRb(
                 body1_pos.* = body1_pos.add(normal.scale(info.depth));
 
                 const dot = body1_rb.velocity.dot(normal);
+                if (0 < dot) continue;
 
                 body1_rb.velocity = body1_rb.velocity.subtract(normal.scale(dot).scale(body1_rb.restitution));
+
+                self.collisions.append(self.allocator, .{
+                    .body1 = rigidbodies.getCurrentEntity(),
+                    .body2 = staticbodies.getCurrentEntity(),
+                }) catch unreachable;
+
+                self.infos.append(self.allocator, .{
+                    .normal = normal,
+                    .depth = info.depth,
+                }) catch unreachable;
             }
         }
 
@@ -74,7 +103,7 @@ pub fn simulateSbRb(
     }
 }
 
-pub fn simulateRb(delta_time: f32, iterator: *Ecs.TupleIterator(.{
+pub fn simulateRb(self: *Self, delta_time: f32, iterator: *Ecs.TupleIterator(.{
     .include = ecs.Template{ .components = &.{ Position, Collider, Rigidbody } },
 })) void {
     const friction: f32 = 0.0005;
@@ -126,6 +155,16 @@ pub fn simulateRb(delta_time: f32, iterator: *Ecs.TupleIterator(.{
 
                 body1_rb.velocity = body1_rb.velocity.subtract(v_1).add(@"m_1*v_1 + m_2*v_1".add(v_2.subtract(v_1).scale(e * body2_rb.mass)).segment(@"m_1+m_2"));
                 body2_rb.velocity = body2_rb.velocity.subtract(v_2).add(@"m_1*v_1 + m_2*v_1".add(v_1.subtract(v_2).scale(e * body1_rb.mass)).segment(@"m_1+m_2"));
+
+                self.collisions.append(self.allocator, .{
+                    .body1 = iterator.getCurrentEntity(),
+                    .body2 = inner_iterator.getCurrentEntity(),
+                }) catch unreachable;
+
+                self.infos.append(self.allocator, .{
+                    .normal = normal,
+                    .depth = info.depth,
+                }) catch unreachable;
             }
         }
     }

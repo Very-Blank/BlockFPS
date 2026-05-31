@@ -4,7 +4,7 @@ const imgui = @import("imgui");
 const ecs = @import("ecs");
 const glfw = @import("glfw");
 const math = @import("math");
-const physics = @import("Physics.zig");
+const Physics = @import("Physics.zig");
 
 const Io = std.Io;
 
@@ -24,6 +24,10 @@ const Scale = @import("components/scale.zig").Scale;
 const Camera = @import("components/Camera.zig");
 const Collider = @import("components/collider.zig").Collider;
 const Rigidbody = @import("components/Rigidbody.zig");
+
+const Health = @import("components/Health.zig");
+const Damage = @import("components/Damage.zig");
+const LifeTime = @import("components/LifeTime.zig");
 
 const Ecs = @import("ecs.zig").Ecs;
 const Template = ecs.Template;
@@ -81,8 +85,20 @@ pub fn main(init: std.process.Init) !void {
     const buffer: []u8 = try gpa.alloc(u8, 4_000_000);
     defer gpa.free(buffer);
     var fba: std.heap.FixedBufferAllocator = .init(buffer);
-    var ecs_engine: Ecs = .init(fba.allocator());
+    var ecs_engine: Ecs = try .init(fba.allocator());
     defer ecs_engine.deinit();
+
+    ecs_engine.setArchetypeInitCapcacity(ecs.Template{ .components = &.{
+        Position,
+        Scale,
+        Rotation,
+        ModelInstance,
+        Collider,
+        Rigidbody,
+    } }, 100);
+
+    var physics: Physics = .init(gpa);
+    defer physics.deinit();
 
     const player_singleton = ecs_engine.createSingleton(.{ .components = &.{ Position, Rigidbody, Camera } });
 
@@ -131,6 +147,7 @@ pub fn main(init: std.process.Init) !void {
     }, &.{});
 
     _ = ecs_engine.createEntity(.{
+        Health{ .current = 50.0, .max = 50.0 },
         Position{ .y = 2.5 },
         Scale.one,
         Rotation.identity,
@@ -140,6 +157,7 @@ pub fn main(init: std.process.Init) !void {
     }, &.{});
 
     _ = ecs_engine.createEntity(.{
+        Health{ .current = 50.0, .max = 50.0 },
         Position.zero,
         Scale.one,
         Rotation.identity,
@@ -220,7 +238,26 @@ pub fn main(init: std.process.Init) !void {
                 };
 
                 if (!ignore_input) {
-                    handlePlayerInput(&window, player, delta_time);
+                    var grounded = false;
+
+                    for (physics.collisions.items, 0..) |collision, i| {
+                        if (collision.body1.eql(id) and 0.9 < physics.infos.items[i].normal.dot(math.f32.Vector3.up)) grounded = true;
+                        if (collision.body2.eql(id) and 0.9 < physics.infos.items[i].normal.negate().dot(math.f32.Vector3.up)) grounded = true;
+
+                        if (ecs_engine.entityHas(collision.body1, Health) and ecs_engine.entityHas(collision.body2, Damage)) {
+                            const health = ecs_engine.getEntityComponent(collision.body1, Health) catch unreachable;
+                            const damage = ecs_engine.getEntityComponent(collision.body2, Damage) catch unreachable;
+                            health.current -= damage.damage;
+                        }
+
+                        if (ecs_engine.entityHas(collision.body2, Health) and ecs_engine.entityHas(collision.body1, Damage)) {
+                            const health = ecs_engine.getEntityComponent(collision.body2, Health) catch unreachable;
+                            const damage = ecs_engine.getEntityComponent(collision.body1, Damage) catch unreachable;
+                            health.current -= damage.damage;
+                        }
+                    }
+
+                    handlePlayerInput(&window, player, grounded, delta_time);
 
                     if (window.input.mouse_state.left_click == .justPressed) {
                         const forward = math.f32.Vector3.forward
@@ -230,6 +267,8 @@ pub fn main(init: std.process.Init) !void {
                             .negate();
 
                         _ = ecs_engine.createEntity(.{
+                            LifeTime{ .duration = 5.0 },
+                            Damage{ .damage = 10 },
                             player.position.add(forward),
                             Scale{ .x = 0.1, .y = 0.1, .z = 0.1 },
                             Rotation.identity,
@@ -293,6 +332,31 @@ pub fn main(init: std.process.Init) !void {
             }
         }
 
+        destroy: {
+            var iterator = if (ecs_engine.getIterator(.{
+                .component = Health,
+            })) |iterator| iterator else break :destroy;
+
+            while (iterator.next()) |health| {
+                if (health.current <= 0) {
+                    ecs_engine.destroyEntity(iterator.getCurrentEntity());
+                }
+            }
+        }
+
+        destroy: {
+            var iterator = if (ecs_engine.getIterator(.{
+                .component = LifeTime,
+            })) |iterator| iterator else break :destroy;
+
+            while (iterator.next()) |lifetime| {
+                lifetime.elapsed += delta_time;
+                if (lifetime.duration < lifetime.elapsed) {
+                    ecs_engine.destroyEntity(iterator.getCurrentEntity());
+                }
+            }
+        }
+
         gui.newFrame();
 
         debug_window.draw();
@@ -302,6 +366,7 @@ pub fn main(init: std.process.Init) !void {
         gui.endFrame();
 
         ecs_engine.clearDestroyedEntitys();
+        physics.clear();
 
         window.swapAndPoll();
     }
@@ -309,7 +374,7 @@ pub fn main(init: std.process.Init) !void {
 
 const Player = struct { position: *Position, rigidbody: *Rigidbody, camera: *Camera };
 
-pub fn handlePlayerInput(window: *Window, player: Player, delta_time: f32) void {
+pub fn handlePlayerInput(window: *Window, player: Player, grounded: bool, delta_time: f32) void {
     player.camera.rotation.yaw -= window.input.mouse_state.motion.x;
     player.camera.rotation.pitch += window.input.mouse_state.motion.y;
 
@@ -326,6 +391,11 @@ pub fn handlePlayerInput(window: *Window, player: Player, delta_time: f32) void 
     if (window.input.getKeyState(.a).isDown()) {
         movement_input.x -= 1.0;
     }
+
+    if (grounded and window.input.getKeyState(.space) == .justPressed) {
+        player.rigidbody.velocity.y += 1250 * delta_time;
+    }
+
     // if (window.input.getKeyState(.space).isDown()) {
     //     movement_input.y += 1.0;
     // }

@@ -17,6 +17,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
         .platforms = &[_]Platform{.GLFW},
         .renderers = &[_]Renderer{.OpenGL3},
+        .docking = false,
     });
 
     const math_dependency = b.dependency("ZigMath", .{ .target = target, .optimize = optimize });
