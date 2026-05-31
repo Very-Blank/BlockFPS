@@ -28,6 +28,7 @@ const Rigidbody = @import("components/Rigidbody.zig");
 const Health = @import("components/Health.zig");
 const Damage = @import("components/Damage.zig");
 const LifeTime = @import("components/LifeTime.zig");
+const Grounded = @import("components/Grounded.zig");
 
 const Ecs = @import("ecs.zig").Ecs;
 const Template = ecs.Template;
@@ -95,7 +96,7 @@ pub fn main(init: std.process.Init) !void {
         ModelInstance,
         Collider,
         Rigidbody,
-    } }, 100);
+    } }, 4000);
 
     var physics: Physics = .init(gpa);
     defer physics.deinit();
@@ -170,6 +171,7 @@ pub fn main(init: std.process.Init) !void {
         Position{ .x = -3, .y = 1.1 },
         Rigidbody{ .mass = 5.0 },
         Collider{ .capsule = .{ .radius = 0.5, .length = 2 } },
+        Grounded{ .grounded = false },
         Camera{
             .projection = .{ .far = 1000.0, .near = 0.001, .fov = 90 },
             .rotation = .{ .pitch = 0.0, .yaw = 0.0 },
@@ -185,8 +187,10 @@ pub fn main(init: std.process.Init) !void {
     ecs_engine.setSingletonsEntity(player_singleton, player_entity) catch unreachable;
 
     var lapsed_time: f64 = 0.0;
-
     var ignore_input: bool = false;
+
+    const fixed_step: f32 = 1.0 / 120.0;
+    var accumulator: f32 = 0.0;
 
     while (window.run()) {
         glad.glClear(glad.GL_COLOR_BUFFER_BIT | glad.GL_DEPTH_BUFFER_BIT);
@@ -199,7 +203,47 @@ pub fn main(init: std.process.Init) !void {
             break :outer @floatCast(delta_time);
         };
 
-        physics.update(delta_time, &ecs_engine);
+        accumulator = @min(accumulator + delta_time, 0.1);
+
+        while (fixed_step <= accumulator) {
+            grounded: {
+                var iterator = ecs_engine.getIterator(.{ .component = Grounded }) orelse break :grounded;
+
+                while (iterator.next()) |grounded| {
+                    grounded.*.grounded = false;
+                }
+            }
+
+            physics.update(fixed_step, &ecs_engine);
+
+            for (physics.collisions.items, 0..) |collision, i| {
+                if (ecs_engine.entityHas(collision.body1, Health) and ecs_engine.entityHas(collision.body2, Damage)) {
+                    const health = ecs_engine.getEntityComponent(collision.body1, Health) catch unreachable;
+                    const damage = ecs_engine.getEntityComponent(collision.body2, Damage) catch unreachable;
+                    health.current -= damage.damage;
+                }
+
+                if (ecs_engine.entityHas(collision.body2, Health) and ecs_engine.entityHas(collision.body1, Damage)) {
+                    const health = ecs_engine.getEntityComponent(collision.body2, Health) catch unreachable;
+                    const damage = ecs_engine.getEntityComponent(collision.body1, Damage) catch unreachable;
+                    health.current -= damage.damage;
+                }
+
+                if (ecs_engine.entityHas(collision.body1, Grounded) and 0.9 < physics.infos.items[i].normal.dot(math.f32.Vector3.up)) {
+                    const grounded = ecs_engine.getEntityComponent(collision.body1, Grounded) catch unreachable;
+                    grounded.grounded = true;
+                }
+
+                if (ecs_engine.entityHas(collision.body2, Grounded) and 0.9 < physics.infos.items[i].normal.negate().dot(math.f32.Vector3.up)) {
+                    const grounded = ecs_engine.getEntityComponent(collision.body2, Grounded) catch unreachable;
+                    grounded.grounded = true;
+                }
+            }
+
+            physics.clear();
+
+            accumulator -= fixed_step;
+        }
 
         if (window.input.getKeyState(.escape) == .justPressed) {
             ignore_input = true;
@@ -234,30 +278,12 @@ pub fn main(init: std.process.Init) !void {
                 const player: Player = .{
                     .position = ecs_engine.getEntityComponent(id, Position) catch unreachable,
                     .rigidbody = ecs_engine.getEntityComponent(id, Rigidbody) catch unreachable,
+                    .grounded = ecs_engine.getEntityComponent(id, Grounded) catch unreachable,
                     .camera = ecs_engine.getEntityComponent(id, Camera) catch unreachable,
                 };
 
                 if (!ignore_input) {
-                    var grounded = false;
-
-                    for (physics.collisions.items, 0..) |collision, i| {
-                        if (collision.body1.eql(id) and 0.9 < physics.infos.items[i].normal.dot(math.f32.Vector3.up)) grounded = true;
-                        if (collision.body2.eql(id) and 0.9 < physics.infos.items[i].normal.negate().dot(math.f32.Vector3.up)) grounded = true;
-
-                        if (ecs_engine.entityHas(collision.body1, Health) and ecs_engine.entityHas(collision.body2, Damage)) {
-                            const health = ecs_engine.getEntityComponent(collision.body1, Health) catch unreachable;
-                            const damage = ecs_engine.getEntityComponent(collision.body2, Damage) catch unreachable;
-                            health.current -= damage.damage;
-                        }
-
-                        if (ecs_engine.entityHas(collision.body2, Health) and ecs_engine.entityHas(collision.body1, Damage)) {
-                            const health = ecs_engine.getEntityComponent(collision.body2, Health) catch unreachable;
-                            const damage = ecs_engine.getEntityComponent(collision.body1, Damage) catch unreachable;
-                            health.current -= damage.damage;
-                        }
-                    }
-
-                    handlePlayerInput(&window, player, grounded, delta_time);
+                    handlePlayerInput(&window, player, delta_time);
 
                     if (window.input.mouse_state.left_click == .justPressed) {
                         const forward = math.f32.Vector3.forward
@@ -267,14 +293,14 @@ pub fn main(init: std.process.Init) !void {
                             .negate();
 
                         _ = ecs_engine.createEntity(.{
-                            LifeTime{ .duration = 5.0 },
+                            LifeTime{ .duration = 3.0 },
                             Damage{ .damage = 10 },
                             player.position.add(forward),
                             Scale{ .x = 0.1, .y = 0.1, .z = 0.1 },
                             Rotation.identity,
                             ModelInstance.cube,
-                            Collider{ .sphere = .{ .radius = 0.1 } },
-                            Rigidbody{ .velocity = forward.scale(20.0), .gravity = -0.5, .restitution = 1.5, .mass = 0.1 },
+                            Collider{ .sphere = .{ .radius = 0.5 } },
+                            Rigidbody{ .velocity = forward.scale(80.0), .gravity = 0.0, .restitution = 1.5, .mass = 0.1 },
                         }, &.{});
                     }
                 }
@@ -365,16 +391,16 @@ pub fn main(init: std.process.Init) !void {
 
         gui.endFrame();
 
-        ecs_engine.clearDestroyedEntitys();
         physics.clear();
+        ecs_engine.clearDestroyedEntitys();
 
         window.swapAndPoll();
     }
 }
 
-const Player = struct { position: *Position, rigidbody: *Rigidbody, camera: *Camera };
+const Player = struct { position: *Position, rigidbody: *Rigidbody, grounded: *Grounded, camera: *Camera };
 
-pub fn handlePlayerInput(window: *Window, player: Player, grounded: bool, delta_time: f32) void {
+pub fn handlePlayerInput(window: *Window, player: Player, _: f32) void {
     player.camera.rotation.yaw -= window.input.mouse_state.motion.x;
     player.camera.rotation.pitch += window.input.mouse_state.motion.y;
 
@@ -392,8 +418,8 @@ pub fn handlePlayerInput(window: *Window, player: Player, grounded: bool, delta_
         movement_input.x -= 1.0;
     }
 
-    if (grounded and window.input.getKeyState(.space) == .justPressed) {
-        player.rigidbody.velocity.y += 1250 * delta_time;
+    if (player.grounded.grounded and window.input.getKeyState(.space) == .justPressed) {
+        player.rigidbody.velocity.y += 5;
     }
 
     // if (window.input.getKeyState(.space).isDown()) {
@@ -404,7 +430,7 @@ pub fn handlePlayerInput(window: *Window, player: Player, grounded: bool, delta_
     // }
 
     if (movement_input.length() > 0.0) {
-        movement_input = movement_input.normalize().rotateAroundAxis(.y, player.camera.rotation.yaw).scale(1000 * delta_time);
+        movement_input = movement_input.normalize().rotateAroundAxis(.y, player.camera.rotation.yaw).scale(10);
         player.rigidbody.velocity.x = movement_input.x;
         player.rigidbody.velocity.z = movement_input.z;
     } else {

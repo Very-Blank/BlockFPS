@@ -8,6 +8,7 @@ const Scale = @import("components/scale.zig").Scale;
 const Camera = @import("components/Camera.zig");
 const Collider = @import("components/collider.zig").Collider;
 const Rigidbody = @import("components/Rigidbody.zig");
+const Grounded = @import("components/Grounded.zig");
 
 const Health = @import("components/Health.zig");
 const Damage = @import("components/Damage.zig");
@@ -21,5 +22,5 @@ pub const Ecs = ecs.Ecs(&.{
     ecs.Template{ .components = &.{ Position, Scale, Rotation, Model, Collider, Rigidbody } },
     ecs.Template{ .components = &.{ Position, Scale, Rotation, Model, Collider } },
     ecs.Template{ .components = &.{ Position, Scale, Rotation, Model } },
-    ecs.Template{ .components = &.{ Position, Collider, Rigidbody, Camera } }, // NOTE: Player
+    ecs.Template{ .components = &.{ Position, Collider, Rigidbody, Grounded, Camera } }, // NOTE: Player
 });

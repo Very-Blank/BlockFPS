@@ -101,8 +101,7 @@
 
         extraModule = {...}: {
           config.nmux = {
-            shell = pkgs.lib.getExe pkgs.zsh;
-
+            shell = "${pkgs.lib.getExe pkgs.zsh}";
             extraConfig = ''
               set-hook -g session-created 'send-keys "nvim" enter ; new-window ; select-window -t 0'
             '';
@@ -110,7 +109,8 @@
         };
       };
     in
-      pkgs.mkShell {
+      pkgs.mkShell
+      {
         packages = [
           pkgs.zig
 
@@ -154,10 +154,8 @@
 
         LD_LIBRARY_PATH = pkgs.lib.makeLibraryPath ["${pkgs.wayland}" "${pkgs.libxkbcommon}" "${pkgs.libGL}"];
 
-        # export LD_LIBRARY_PATH=${pkgs.wayland}/lib:$LD_LIBRARY_PATH
         shellHook = ''
-
-          exec ${pkgs.lib.getExe' tmux "tmux"}
+          ${pkgs.lib.getExe' tmux "tmux"}
         '';
       };
   };
