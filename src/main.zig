@@ -25,9 +25,9 @@ const Camera = @import("components/Camera.zig");
 const Collider = @import("components/collider.zig").Collider;
 const Rigidbody = @import("components/Rigidbody.zig");
 
+const Enemy = @import("components/Enemy.zig");
 const Health = @import("components/Health.zig");
-const Damage = @import("components/Damage.zig");
-const LifeTime = @import("components/LifeTime.zig");
+const Bullet = @import("components/Bullet.zig");
 const Grounded = @import("components/Grounded.zig");
 
 const Ecs = @import("ecs.zig").Ecs;
@@ -89,15 +89,6 @@ pub fn main(init: std.process.Init) !void {
     var ecs_engine: Ecs = try .init(fba.allocator());
     defer ecs_engine.deinit();
 
-    ecs_engine.setArchetypeInitCapcacity(ecs.Template{ .components = &.{
-        Position,
-        Scale,
-        Rotation,
-        ModelInstance,
-        Collider,
-        Rigidbody,
-    } }, 4000);
-
     var physics: Physics = .init(gpa);
     defer physics.deinit();
 
@@ -148,7 +139,6 @@ pub fn main(init: std.process.Init) !void {
     }, &.{});
 
     _ = ecs_engine.createEntity(.{
-        Health{ .current = 50.0, .max = 50.0 },
         Position{ .y = 2.5 },
         Scale.one,
         Rotation.identity,
@@ -158,6 +148,16 @@ pub fn main(init: std.process.Init) !void {
     }, &.{});
 
     _ = ecs_engine.createEntity(.{
+        Position.zero,
+        Scale.one,
+        Rotation.identity,
+        Model.init(Model.cube),
+        Collider{ .box = .one },
+        Rigidbody{ .restitution = 0.5, .mass = 10.0 },
+    }, &.{});
+
+    _ = ecs_engine.createEntity(.{
+        Enemy{ .follow_speed = 5.0, .follow_distance = 5.0 },
         Health{ .current = 50.0, .max = 50.0 },
         Position.zero,
         Scale.one,
@@ -169,8 +169,8 @@ pub fn main(init: std.process.Init) !void {
 
     const player_entity = ecs_engine.createEntity(.{
         Position{ .x = -3, .y = 1.1 },
-        Rigidbody{ .mass = 5.0 },
-        Collider{ .capsule = .{ .radius = 0.5, .length = 2 } },
+        Rigidbody{ .mass = 5.0, .restitution = 0.0 },
+        Collider{ .capsule = .{ .radius = 0.5, .height = 2 } },
         Grounded{ .grounded = false },
         Camera{
             .projection = .{ .far = 1000.0, .near = 0.001, .fov = 90 },
@@ -189,9 +189,6 @@ pub fn main(init: std.process.Init) !void {
     var lapsed_time: f64 = 0.0;
     var ignore_input: bool = false;
 
-    const fixed_step: f32 = 1.0 / 120.0;
-    var accumulator: f32 = 0.0;
-
     while (window.run()) {
         glad.glClear(glad.GL_COLOR_BUFFER_BIT | glad.GL_DEPTH_BUFFER_BIT);
         glad.glClearColor(66.0 / 245.0, 161.0 / 245.0, 245 / 245.0, 1.0);
@@ -203,47 +200,8 @@ pub fn main(init: std.process.Init) !void {
             break :outer @floatCast(delta_time);
         };
 
-        accumulator = @min(accumulator + delta_time, 0.1);
-
-        while (fixed_step <= accumulator) {
-            grounded: {
-                var iterator = ecs_engine.getIterator(.{ .component = Grounded }) orelse break :grounded;
-
-                while (iterator.next()) |grounded| {
-                    grounded.*.grounded = false;
-                }
-            }
-
-            physics.update(fixed_step, &ecs_engine);
-
-            for (physics.collisions.items, 0..) |collision, i| {
-                if (ecs_engine.entityHas(collision.body1, Health) and ecs_engine.entityHas(collision.body2, Damage)) {
-                    const health = ecs_engine.getEntityComponent(collision.body1, Health) catch unreachable;
-                    const damage = ecs_engine.getEntityComponent(collision.body2, Damage) catch unreachable;
-                    health.current -= damage.damage;
-                }
-
-                if (ecs_engine.entityHas(collision.body2, Health) and ecs_engine.entityHas(collision.body1, Damage)) {
-                    const health = ecs_engine.getEntityComponent(collision.body2, Health) catch unreachable;
-                    const damage = ecs_engine.getEntityComponent(collision.body1, Damage) catch unreachable;
-                    health.current -= damage.damage;
-                }
-
-                if (ecs_engine.entityHas(collision.body1, Grounded) and 0.9 < physics.infos.items[i].normal.dot(math.f32.Vector3.up)) {
-                    const grounded = ecs_engine.getEntityComponent(collision.body1, Grounded) catch unreachable;
-                    grounded.grounded = true;
-                }
-
-                if (ecs_engine.entityHas(collision.body2, Grounded) and 0.9 < physics.infos.items[i].normal.negate().dot(math.f32.Vector3.up)) {
-                    const grounded = ecs_engine.getEntityComponent(collision.body2, Grounded) catch unreachable;
-                    grounded.grounded = true;
-                }
-            }
-
-            physics.clear();
-
-            accumulator -= fixed_step;
-        }
+        physics.update(&ecs_engine, delta_time);
+        handleCollision(&physics, &ecs_engine);
 
         if (window.input.getKeyState(.escape) == .justPressed) {
             ignore_input = true;
@@ -293,14 +251,13 @@ pub fn main(init: std.process.Init) !void {
                             .negate();
 
                         _ = ecs_engine.createEntity(.{
-                            LifeTime{ .duration = 3.0 },
-                            Damage{ .damage = 10 },
+                            Bullet{ .damage = 10, .duration = 3.0, .max_deflection_angle = 0.85 },
                             player.position.add(forward),
                             Scale{ .x = 0.1, .y = 0.1, .z = 0.1 },
                             Rotation.identity,
                             ModelInstance.cube,
                             Collider{ .sphere = .{ .radius = 0.5 } },
-                            Rigidbody{ .velocity = forward.scale(80.0), .gravity = 0.0, .restitution = 1.5, .mass = 0.1 },
+                            Rigidbody{ .velocity = forward.scale(50.0), .gravity = 0.0, .restitution = 0.0, .mass = 0.1 },
                         }, &.{});
                     }
                 }
@@ -320,10 +277,36 @@ pub fn main(init: std.process.Init) !void {
             break :init .{ math.f32.Mat4.identity, math.f32.Mat4.identity };
         };
 
+        enemy: {
+            const id = ecs_engine.getSingletonsEntity(player_singleton) orelse break :enemy;
+            const position = ecs_engine.getEntityComponent(id, Position) catch unreachable;
+
+            var iterator = ecs_engine.getTupleIterator(.{
+                .include = ecs.Template{ .components = &.{ Enemy, Position, Rigidbody } },
+            }) orelse break :enemy;
+
+            while (iterator.next()) |tuple| {
+                const enemy: *Enemy = tuple[0];
+                const enemy_position: *Position = tuple[1];
+                const enemy_rigidbody: *Rigidbody = tuple[2];
+
+                const direction = position.subtract(enemy_position.*).normalize().scale(position.subtract(enemy_position.*).length() - enemy.follow_distance);
+
+                if (1.0 < enemy_position.distance(enemy_position.add(direction))) {
+                    const movement = direction.normalize().scale(enemy.follow_speed);
+                    enemy_rigidbody.velocity.x = movement.x;
+                    enemy_rigidbody.velocity.z = movement.z;
+                } else {
+                    enemy_rigidbody.velocity.x = 0;
+                    enemy_rigidbody.velocity.z = 0;
+                }
+            }
+        }
+
         render: {
-            var tuple_iterator = if (ecs_engine.getTupleIterator(.{
+            var tuple_iterator = ecs_engine.getTupleIterator(.{
                 .include = ecs.Template{ .components = &.{ Position, Scale, Rotation, Model } },
-            })) |tuple_iterator| tuple_iterator else break :render;
+            }) orelse break :render;
 
             rendering.startRender();
 
@@ -334,9 +317,9 @@ pub fn main(init: std.process.Init) !void {
         }
 
         render: {
-            var tuple_iterator = if (ecs_engine.getTupleIterator(.{
+            var tuple_iterator = ecs_engine.getTupleIterator(.{
                 .include = ecs.Template{ .components = &.{ Position, Scale, Rotation, ModelInstance } },
-            })) |tuple_iterator| tuple_iterator else break :render;
+            }) orelse break :render;
 
             rendering.startRender();
 
@@ -347,9 +330,9 @@ pub fn main(init: std.process.Init) !void {
         }
 
         destroy: {
-            var iterator = if (ecs_engine.getIterator(.{
+            var iterator = ecs_engine.getIterator(.{
                 .component = Position,
-            })) |iterator| iterator else break :destroy;
+            }) orelse break :destroy;
 
             while (iterator.next()) |position| {
                 if (position.y < -100.0) {
@@ -359,9 +342,9 @@ pub fn main(init: std.process.Init) !void {
         }
 
         destroy: {
-            var iterator = if (ecs_engine.getIterator(.{
+            var iterator = ecs_engine.getIterator(.{
                 .component = Health,
-            })) |iterator| iterator else break :destroy;
+            }) orelse break :destroy;
 
             while (iterator.next()) |health| {
                 if (health.current <= 0) {
@@ -371,13 +354,13 @@ pub fn main(init: std.process.Init) !void {
         }
 
         destroy: {
-            var iterator = if (ecs_engine.getIterator(.{
-                .component = LifeTime,
-            })) |iterator| iterator else break :destroy;
+            var iterator = ecs_engine.getIterator(.{
+                .component = Bullet,
+            }) orelse break :destroy;
 
-            while (iterator.next()) |lifetime| {
-                lifetime.elapsed += delta_time;
-                if (lifetime.duration < lifetime.elapsed) {
+            while (iterator.next()) |buller| {
+                buller.elapsed += delta_time;
+                if (buller.duration < buller.elapsed) {
                     ecs_engine.destroyEntity(iterator.getCurrentEntity());
                 }
             }
@@ -396,6 +379,52 @@ pub fn main(init: std.process.Init) !void {
 
         window.swapAndPoll();
     }
+}
+
+pub fn handleCollision(physics: *Physics, ecs_engine: *Ecs) void {
+    for (physics.sbVsRb_collisions.items, 0..) |collision, i| {
+        if (ecs_engine.entityHas(collision.body1, Grounded) and 0.9 < physics.sbVsRb_infos.items[i].normal.dot(math.f32.Vector3.up)) {
+            const grounded = ecs_engine.getEntityComponent(collision.body1, Grounded) catch unreachable;
+            grounded.grounded = true;
+        }
+
+        if (ecs_engine.entityHas(collision.body1, Bullet)) {
+            const bullet = ecs_engine.getEntityComponent(collision.body1, Bullet) catch unreachable;
+            if (bullet.max_deflection_angle < -physics.sbVsRb_infos.items[i].angle) {
+                ecs_engine.destroyEntity(collision.body1);
+            }
+        }
+    }
+
+    for (physics.rbVsRb_collisions.items, 0..) |collision, i| {
+        if (ecs_engine.entityHas(collision.body1, Grounded) and 0.9 < physics.rbVsRb_infos.items[i].normal.dot(math.f32.Vector3.up)) {
+            const grounded = ecs_engine.getEntityComponent(collision.body1, Grounded) catch unreachable;
+            grounded.grounded = true;
+        }
+
+        if (ecs_engine.entityHas(collision.body2, Grounded) and 0.9 < physics.rbVsRb_infos.items[i].normal.negate().dot(math.f32.Vector3.up)) {
+            const grounded = ecs_engine.getEntityComponent(collision.body2, Grounded) catch unreachable;
+            grounded.grounded = true;
+        }
+
+        if (ecs_engine.entityHas(collision.body1, Health) and ecs_engine.entityHas(collision.body2, Bullet)) {
+            const health = ecs_engine.getEntityComponent(collision.body1, Health) catch unreachable;
+            const bullet = ecs_engine.getEntityComponent(collision.body2, Bullet) catch unreachable;
+            health.current -= bullet.damage;
+
+            ecs_engine.destroyEntity(collision.body2);
+        }
+
+        if (ecs_engine.entityHas(collision.body2, Health) and ecs_engine.entityHas(collision.body1, Bullet)) {
+            const health = ecs_engine.getEntityComponent(collision.body2, Health) catch unreachable;
+            const bullet = ecs_engine.getEntityComponent(collision.body1, Bullet) catch unreachable;
+            health.current -= bullet.damage;
+
+            ecs_engine.destroyEntity(collision.body1);
+        }
+    }
+
+    physics.clear();
 }
 
 const Player = struct { position: *Position, rigidbody: *Rigidbody, grounded: *Grounded, camera: *Camera };
@@ -422,15 +451,8 @@ pub fn handlePlayerInput(window: *Window, player: Player, _: f32) void {
         player.rigidbody.velocity.y += 5;
     }
 
-    // if (window.input.getKeyState(.space).isDown()) {
-    //     movement_input.y += 1.0;
-    // }
-    // if (window.input.getKeyState(.left_control).isDown()) {
-    //     movement_input.y -= 1.0;
-    // }
-
     if (movement_input.length() > 0.0) {
-        movement_input = movement_input.normalize().rotateAroundAxis(.y, player.camera.rotation.yaw).scale(10);
+        movement_input = movement_input.normalize().rotateAroundAxis(.y, player.camera.rotation.yaw).scale(if (window.input.getKeyState(.left_shift).isDown()) 10 else 4);
         player.rigidbody.velocity.x = movement_input.x;
         player.rigidbody.velocity.z = movement_input.z;
     } else {

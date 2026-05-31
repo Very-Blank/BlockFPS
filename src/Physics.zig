@@ -4,24 +4,52 @@ const math = @import("math");
 
 const Ecs = @import("ecs.zig").Ecs;
 const Template = ecs.Template;
+const EntityPointer = ecs.EntityPointer;
 
 const Position = @import("components/position.zig").Position;
 const Collider = @import("components/collider.zig").Collider;
 const Rigidbody = @import("components/Rigidbody.zig");
+const Grounded = @import("components/Grounded.zig");
 
 const Sphere = Collider.Sphere;
 const Capsule = Collider.Capsule;
 const Box = Collider.Box;
 
-collisions: std.ArrayList(Collision) = .empty,
-infos: std.ArrayList(Info) = .empty,
+const fixed_step: f32 = 1.0 / 120.0;
+const max_accumulation: f32 = 0.1;
+
+accumulator: f32 = 0.0,
+collisions: std.AutoHashMapUnmanaged(u64, void) = .empty,
+rbVsRb_collisions: std.ArrayList(Collision) = .empty,
+sbVsRb_collisions: std.ArrayList(Collision) = .empty,
+
+rbVsRb_infos: std.ArrayList(struct {
+    normal: math.f32.Vector3,
+    depth: f32,
+    angle1: f32,
+    angle2: f32,
+}) = .empty,
+
+sbVsRb_infos: std.ArrayList(struct {
+    normal: math.f32.Vector3,
+    depth: f32,
+    angle: f32,
+}) = .empty,
+
 allocator: std.mem.Allocator,
 
 const Self = @This();
 
 pub const Collision = struct {
-    body1: ecs.EntityPointer,
-    body2: ecs.EntityPointer,
+    body1: EntityPointer,
+    body2: EntityPointer,
+};
+
+pub const CollisionInfo = struct {
+    normal: math.f32.Vector3,
+    detph: f32,
+    angle1: f32,
+    angle2: f32,
 };
 
 pub const Info = struct {
@@ -37,30 +65,76 @@ pub fn init(allocator: std.mem.Allocator) Self {
 
 pub fn deinit(self: *Self) void {
     self.collisions.deinit(self.allocator);
-    self.infos.deinit(self.allocator);
+    self.rbVsRb_collisions.deinit(self.allocator);
+    self.rbVsRb_infos.deinit(self.allocator);
+
+    self.sbVsRb_collisions.deinit(self.allocator);
+    self.sbVsRb_infos.deinit(self.allocator);
 }
 
 pub fn clear(self: *Self) void {
     self.collisions.clearRetainingCapacity();
-    self.infos.clearRetainingCapacity();
+    self.rbVsRb_collisions.clearRetainingCapacity();
+    self.rbVsRb_infos.clearRetainingCapacity();
+
+    self.sbVsRb_collisions.clearRetainingCapacity();
+    self.sbVsRb_infos.clearRetainingCapacity();
 }
 
-pub fn update(self: *Self, delta_time: f32, ecs_engine: *Ecs) void {
-    var rigidbodies = if (ecs_engine.getTupleIterator(.{
-        .include = ecs.Template{ .components = &.{ Position, Collider, Rigidbody } },
-    })) |tuple_iterator| tuple_iterator else return;
+pub fn hasCollision(self: *Self, a: EntityPointer, b: EntityPointer) bool {
+    return (self.collisions.getOrPut(self.allocator, key(a, b)) catch @panic("OOM")).found_existing;
+}
 
-    update_sb_rb_physics: {
-        var staticbodies = if (ecs_engine.getTupleIterator(.{
+fn key(a: EntityPointer, b: EntityPointer) u64 {
+    if (a.entity.value() < b.entity.value()) return @as(u64, a.entity.value()) << 32 | b.entity.value();
+    return @as(u64, b.entity.value()) << 32 | a.entity.value();
+}
+
+pub fn update(self: *Self, ecs_engine: *Ecs, delta_time: f32) void {
+    self.accumulator = @min(self.accumulator + delta_time, max_accumulation);
+
+    if (fixed_step <= self.accumulator) {
+        grounded: {
+            var iterator = ecs_engine.getIterator(.{ .component = Grounded }) orelse break :grounded;
+
+            while (iterator.next()) |grounded| {
+                grounded.*.grounded = false;
+            }
+        }
+
+        var rigidbodies = ecs_engine.getTupleIterator(.{
+            .include = ecs.Template{ .components = &.{ Position, Collider, Rigidbody } },
+        }) orelse return;
+
+        if (ecs_engine.getTupleIterator(.{
             .include = ecs.Template{ .components = &.{ Position, Collider } },
             .exclude = ecs.Template{ .components = &.{Rigidbody} },
-        })) |tuple_iterator| tuple_iterator else break :update_sb_rb_physics;
+        })) |tuple_iterator| {
+            var staticbodies = tuple_iterator;
 
-        self.simulateSbRb(delta_time, &rigidbodies, &staticbodies);
-        rigidbodies.reset();
+            while (fixed_step <= self.accumulator) {
+                self.simulateSbRb(delta_time, &rigidbodies, &staticbodies);
+
+                rigidbodies.reset();
+                staticbodies.reset();
+
+                self.simulateRb(delta_time, &rigidbodies);
+
+                rigidbodies.reset();
+
+                self.accumulator -= fixed_step;
+            }
+
+            return;
+        }
+
+        while (fixed_step <= self.accumulator) {
+            self.simulateRb(delta_time, &rigidbodies);
+            rigidbodies.reset();
+
+            self.accumulator -= fixed_step;
+        }
     }
-
-    self.simulateRb(delta_time, &rigidbodies);
 }
 
 pub fn simulateSbRb(
@@ -85,17 +159,27 @@ pub fn simulateSbRb(
                 const dot = body1_rb.velocity.dot(normal);
                 if (0 < dot) continue;
 
-                body1_rb.velocity = body1_rb.velocity.subtract(normal.scale(dot).scale(body1_rb.restitution));
+                const angle: f32 = init: {
+                    const length = body1_rb.velocity.length();
+                    if (0 < length) break :init body1_rb.velocity.normalize().dot(normal);
 
-                self.collisions.append(self.allocator, .{
-                    .body1 = rigidbodies.getCurrentEntity(),
-                    .body2 = staticbodies.getCurrentEntity(),
-                }) catch unreachable;
+                    break :init 0;
+                };
 
-                self.infos.append(self.allocator, .{
-                    .normal = normal,
-                    .depth = info.depth,
-                }) catch unreachable;
+                body1_rb.velocity = body1_rb.velocity.subtract(normal.scale(dot).scale(1.0 + body1_rb.restitution));
+
+                if (!self.hasCollision(rigidbodies.getCurrentEntity(), staticbodies.getCurrentEntity())) {
+                    self.sbVsRb_collisions.append(self.allocator, .{
+                        .body1 = rigidbodies.getCurrentEntity(),
+                        .body2 = staticbodies.getCurrentEntity(),
+                    }) catch @panic("OOM");
+
+                    self.sbVsRb_infos.append(self.allocator, .{
+                        .normal = normal,
+                        .depth = info.depth,
+                        .angle = angle,
+                    }) catch @panic("OOM");
+                }
             }
         }
 
@@ -147,6 +231,18 @@ pub fn simulateRb(self: *Self, delta_time: f32, iterator: *Ecs.TupleIterator(.{
 
                 const e = (body1_rb.restitution + body2_rb.restitution) / 2.0;
 
+                const angle1: f32 = init: {
+                    const length = body1_rb.velocity.length();
+                    if (0 < length) break :init body1_rb.velocity.normalize().dot(normal);
+                    break :init 0;
+                };
+
+                const angle2: f32 = init: {
+                    const length = body2_rb.velocity.length();
+                    if (0 < length) break :init body2_rb.velocity.normalize().dot(normal);
+                    break :init 0;
+                };
+
                 const v_1 = normal.scale(body1_rb.velocity.dot(normal));
                 const v_2 = normal.scale(body2_rb.velocity.dot(normal));
 
@@ -156,15 +252,19 @@ pub fn simulateRb(self: *Self, delta_time: f32, iterator: *Ecs.TupleIterator(.{
                 body1_rb.velocity = body1_rb.velocity.subtract(v_1).add(@"m_1*v_1 + m_2*v_1".add(v_2.subtract(v_1).scale(e * body2_rb.mass)).segment(@"m_1+m_2"));
                 body2_rb.velocity = body2_rb.velocity.subtract(v_2).add(@"m_1*v_1 + m_2*v_1".add(v_1.subtract(v_2).scale(e * body1_rb.mass)).segment(@"m_1+m_2"));
 
-                self.collisions.append(self.allocator, .{
-                    .body1 = iterator.getCurrentEntity(),
-                    .body2 = inner_iterator.getCurrentEntity(),
-                }) catch unreachable;
+                if (!self.hasCollision(iterator.getCurrentEntity(), inner_iterator.getCurrentEntity())) {
+                    self.rbVsRb_collisions.append(self.allocator, .{
+                        .body1 = iterator.getCurrentEntity(),
+                        .body2 = inner_iterator.getCurrentEntity(),
+                    }) catch unreachable;
 
-                self.infos.append(self.allocator, .{
-                    .normal = normal,
-                    .depth = info.depth,
-                }) catch unreachable;
+                    self.rbVsRb_infos.append(self.allocator, .{
+                        .normal = normal,
+                        .depth = info.depth,
+                        .angle1 = angle1,
+                        .angle2 = angle2,
+                    }) catch unreachable;
+                }
             }
         }
     }
@@ -177,6 +277,58 @@ pub fn simulateRb(self: *Self, delta_time: f32, iterator: *Ecs.TupleIterator(.{
 
         position.* = position.add(rigidbody.velocity.scale(delta_time));
     }
+}
+
+pub const RaycastResult = struct {
+    position: math.f32.Vector3,
+    body: EntityPointer,
+};
+
+pub fn raycast(
+    ecs_engine: *Ecs,
+    origin: math.f32.Vector3,
+    direction: math.f32.Vector3,
+    length: f32,
+) ?Position {
+    var bodies = ecs_engine.getTupleIterator(.{
+        .include = ecs.Template{ .components = &.{ Position, Collider } },
+    }) orelse return false;
+
+    const line: Line = .{
+        .start = origin,
+        .end = origin.add(direction.scale(length)),
+    };
+
+    var closest: ?RaycastResult = null;
+
+    while (bodies.next()) |body| {
+        const position: *Collider = body[0];
+        const collider: *Collider = body[1];
+
+        const new: ?Position = switch (collider.*) {
+            .sphere => |sphere| lineVsSphere(line, .{ .position = position.*, .sphere = sphere }),
+            .capsule => |capsule| lineVsCapsule(line, .{ .position = position.*, .capsule = capsule }),
+            .box => |box| lineVsBox(line, .{ .position = position.*, .box = box }),
+        };
+
+        if (new) |capture_new| {
+            if (closest) |capture_closest| {
+                if (origin.distance(capture_new) < origin.distance(capture_closest.position)) {
+                    closest = .{
+                        .position = capture_new,
+                        .body = bodies.getCurrentEntity(),
+                    };
+                }
+            } else {
+                closest = .{
+                    .position = capture_new,
+                    .body = bodies.getCurrentEntity(),
+                };
+            }
+        }
+    }
+
+    return closest;
 }
 
 /// Collision normal isn't guaranteed to be relative to any body.
@@ -256,7 +408,6 @@ pub inline fn collision(body1: struct { position: Position, collider: Collider }
 }
 
 // FIXME: Checking distance != 0.0 isn't good enough.
-
 pub fn sphereVsSphere(
     body1: struct { position: Position, sphere: Sphere },
     body2: struct { position: Position, sphere: Sphere },
@@ -280,11 +431,11 @@ pub fn sphereVsCapsule(
 ) ?Info {
     const closest = Position.closestPointOnLine(Position{
         .x = body2.position.x,
-        .y = body2.position.y - body2.capsule.length / 2,
+        .y = body2.position.y - body2.capsule.height / 2,
         .z = body2.position.z,
     }, Position{
         .x = body2.position.x,
-        .y = body2.position.y + body2.capsule.length / 2,
+        .y = body2.position.y + body2.capsule.height / 2,
         .z = body2.position.z,
     }, body1.position);
 
@@ -336,11 +487,11 @@ pub fn capsuleVsBox(
 ) ?Info {
     const closest_body1_point = Position.closestPointOnLine(Position{
         .x = body1.position.x,
-        .y = body1.position.y - body1.capsule.length / 2,
+        .y = body1.position.y - body1.capsule.height / 2,
         .z = body1.position.z,
     }, Position{
         .x = body1.position.x,
-        .y = body1.position.y + body1.capsule.length / 2,
+        .y = body1.position.y + body1.capsule.height / 2,
         .z = body1.position.z,
     }, body2.position);
 
@@ -374,21 +525,21 @@ pub fn capsuleVsCapsule(
 ) ?Info {
     const body1_closest = Position.closestPointOnLine(Position{
         .x = body1.position.x,
-        .y = body1.position.y - body1.capsule.length / 2,
+        .y = body1.position.y - body1.capsule.height / 2,
         .z = body1.position.z,
     }, Position{
         .x = body1.position.x,
-        .y = body1.position.y + body1.capsule.length / 2,
+        .y = body1.position.y + body1.capsule.height / 2,
         .z = body1.position.z,
     }, body2.position);
 
     const body2_closest = Position.closestPointOnLine(Position{
         .x = body2.position.x,
-        .y = body2.position.y - body2.capsule.length / 2,
+        .y = body2.position.y - body2.capsule.height / 2,
         .z = body2.position.z,
     }, Position{
         .x = body2.position.x,
-        .y = body2.position.y + body2.capsule.length / 2,
+        .y = body2.position.y + body2.capsule.height / 2,
         .z = body2.position.z,
     }, body1.position);
 
@@ -429,4 +580,60 @@ pub fn boxVsBox(
     if (fields.x <= fields.y and fields.x <= fields.z) return .{ .depth = fields.x, .normal = .{ .x = 1 } };
     if (fields.y <= fields.x and fields.y <= fields.z) return .{ .depth = fields.y, .normal = .{ .y = 1 } };
     return .{ .depth = fields.z, .normal = .{ .z = 1 } };
+}
+
+pub const Line = struct { start: Position, end: Position };
+
+// FIXME: THESE ONLY USE AN ESTIMATE!
+
+pub fn lineVsSphere(
+    line: Line,
+    body: struct { position: Position, sphere: Sphere },
+) ?Position {
+    const closest = line.start.closestPointOnLine(line.end, body.position);
+    const distance = body.position.distance(closest);
+
+    if (body.sphere.radius < distance) return null;
+    return closest;
+}
+
+pub fn lineVsCapsule(line: Line, body: struct {
+    position: Position,
+    capsule: Capsule,
+}) ?Position {
+    const closest = line.start.closestPointOnLine(line.end, body.position);
+
+    const clamped_y = std.math.clamp(
+        closest.y,
+        body.position.y - body.capsule.height / 2,
+        body.position.y + body.capsule.height / 2,
+    );
+
+    const capsule_point = Position{
+        .x = body.position.x,
+        .y = clamped_y,
+        .z = body.position.z,
+    };
+
+    if (body.capsule.radius < closest.distance(capsule_point)) return null;
+    return capsule_point;
+}
+
+pub fn lineVsBox(
+    line: Line,
+    body: struct {
+        position: Position,
+        box: Box,
+    },
+) ?Position {
+    const closest = line.start.closestPointOnLine(line.end, body.position);
+
+    inline for (.{ "x", "y", "z" }) |axis| {
+        const min = @field(body.position, axis) - @field(body.box, axis) / 2.0;
+        const max = @field(body.position, axis) + @field(body.box, axis) / 2.0;
+
+        if (@field(closest, axis) < min or max < @field(closest, axis)) return null;
+    }
+
+    return closest;
 }
