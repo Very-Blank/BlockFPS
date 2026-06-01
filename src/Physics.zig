@@ -289,10 +289,10 @@ pub fn raycast(
     origin: math.f32.Vector3,
     direction: math.f32.Vector3,
     length: f32,
-) ?Position {
+) ?RaycastResult {
     var bodies = ecs_engine.getTupleIterator(.{
         .include = ecs.Template{ .components = &.{ Position, Collider } },
-    }) orelse return false;
+    }) orelse return null;
 
     const line: Line = .{
         .start = origin,
@@ -302,10 +302,10 @@ pub fn raycast(
     var closest: ?RaycastResult = null;
 
     while (bodies.next()) |body| {
-        const position: *Collider = body[0];
+        const position: *Position = body[0];
         const collider: *Collider = body[1];
 
-        const new: ?Position = switch (collider.*) {
+        const new: ?math.f32.Vector3 = switch (collider.*) {
             .sphere => |sphere| lineVsSphere(line, .{ .position = position.*, .sphere = sphere }),
             .capsule => |capsule| lineVsCapsule(line, .{ .position = position.*, .capsule = capsule }),
             .box => |box| lineVsBox(line, .{ .position = position.*, .box = box }),
@@ -431,11 +431,11 @@ pub fn sphereVsCapsule(
 ) ?Info {
     const closest = Position.closestPointOnLine(Position{
         .x = body2.position.x,
-        .y = body2.position.y - body2.capsule.height / 2,
+        .y = body2.position.y - body2.capsule.half_height / 2,
         .z = body2.position.z,
     }, Position{
         .x = body2.position.x,
-        .y = body2.position.y + body2.capsule.height / 2,
+        .y = body2.position.y + body2.capsule.half_height / 2,
         .z = body2.position.z,
     }, body1.position);
 
@@ -487,11 +487,11 @@ pub fn capsuleVsBox(
 ) ?Info {
     const closest_body1_point = Position.closestPointOnLine(Position{
         .x = body1.position.x,
-        .y = body1.position.y - body1.capsule.height / 2,
+        .y = body1.position.y - body1.capsule.half_height / 2,
         .z = body1.position.z,
     }, Position{
         .x = body1.position.x,
-        .y = body1.position.y + body1.capsule.height / 2,
+        .y = body1.position.y + body1.capsule.half_height / 2,
         .z = body1.position.z,
     }, body2.position);
 
@@ -525,21 +525,21 @@ pub fn capsuleVsCapsule(
 ) ?Info {
     const body1_closest = Position.closestPointOnLine(Position{
         .x = body1.position.x,
-        .y = body1.position.y - body1.capsule.height / 2,
+        .y = body1.position.y - body1.capsule.half_height / 2,
         .z = body1.position.z,
     }, Position{
         .x = body1.position.x,
-        .y = body1.position.y + body1.capsule.height / 2,
+        .y = body1.position.y + body1.capsule.half_height / 2,
         .z = body1.position.z,
     }, body2.position);
 
     const body2_closest = Position.closestPointOnLine(Position{
         .x = body2.position.x,
-        .y = body2.position.y - body2.capsule.height / 2,
+        .y = body2.position.y - body2.capsule.half_height / 2,
         .z = body2.position.z,
     }, Position{
         .x = body2.position.x,
-        .y = body2.position.y + body2.capsule.height / 2,
+        .y = body2.position.y + body2.capsule.half_height / 2,
         .z = body2.position.z,
     }, body1.position);
 
@@ -582,14 +582,14 @@ pub fn boxVsBox(
     return .{ .depth = fields.z, .normal = .{ .z = 1 } };
 }
 
-pub const Line = struct { start: Position, end: Position };
+pub const Line = struct { start: math.f32.Vector3, end: math.f32.Vector3 };
 
 // FIXME: THESE ONLY USE AN ESTIMATE!
 
 pub fn lineVsSphere(
     line: Line,
     body: struct { position: Position, sphere: Sphere },
-) ?Position {
+) ?math.f32.Vector3 {
     const closest = line.start.closestPointOnLine(line.end, body.position);
     const distance = body.position.distance(closest);
 
@@ -600,16 +600,16 @@ pub fn lineVsSphere(
 pub fn lineVsCapsule(line: Line, body: struct {
     position: Position,
     capsule: Capsule,
-}) ?Position {
+}) ?math.f32.Vector3 {
     const closest = line.start.closestPointOnLine(line.end, body.position);
 
     const clamped_y = std.math.clamp(
         closest.y,
-        body.position.y - body.capsule.height / 2,
-        body.position.y + body.capsule.height / 2,
+        body.position.y - body.capsule.half_height / 2,
+        body.position.y + body.capsule.half_height / 2,
     );
 
-    const capsule_point = Position{
+    const capsule_point = math.f32.Vector3{
         .x = body.position.x,
         .y = clamped_y,
         .z = body.position.z,
@@ -625,7 +625,7 @@ pub fn lineVsBox(
         position: Position,
         box: Box,
     },
-) ?Position {
+) ?math.f32.Vector3 {
     const closest = line.start.closestPointOnLine(line.end, body.position);
 
     inline for (.{ "x", "y", "z" }) |axis| {

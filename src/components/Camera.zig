@@ -4,6 +4,8 @@ const Self = @This();
 
 view: math.f32.Mat4,
 
+offset: f32,
+
 rotation: struct {
     pitch: f32,
     yaw: f32,

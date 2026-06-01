@@ -19,6 +19,6 @@ pub const Ecs = ecs.Ecs(&.{
     ecs.Template{ .components = &.{ Position, Scale, Rotation, Model } },
     //
     ecs.Template{ .components = &.{ Bullet, Position, Scale, Rotation, ModelInstance, Collider, Rigidbody } }, // NOTE: Bullet
-    ecs.Template{ .components = &.{ Enemy, Health, Position, Scale, Rotation, Model, Collider, Rigidbody } }, // NOTE: Enemy
-    ecs.Template{ .components = &.{ Position, Collider, Rigidbody, Grounded, Camera } }, // NOTE: Player
+    ecs.Template{ .components = &.{ Enemy, Health, Position, Scale, Rotation, Model, Collider, Rigidbody, Grounded } }, // NOTE: Enemy
+    ecs.Template{ .components = &.{ Health, Position, Collider, Rigidbody, Grounded, Camera } }, // NOTE: Player
 });
