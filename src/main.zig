@@ -25,6 +25,7 @@ const Rotation = @import("components/rotation.zig").Rotation;
 const Scale = @import("components/scale.zig").Scale;
 const Camera = @import("components/Camera.zig");
 const Collider = @import("components/collider.zig").Collider;
+const Mask = Collider.Mask;
 const Rigidbody = @import("components/Rigidbody.zig");
 
 const Enemy = @import("components/Enemy.zig");
@@ -109,9 +110,9 @@ pub fn main(init: std.process.Init) !void {
         Enemy{
             .state = .patrol,
             .vision = .{
-                .memory = .{ .duration = 5.0, .elapsed = 5.0 },
+                .memory = .init(5.0, .finished),
                 .distance = 15.0,
-                .angle = std.math.pi,
+                .angle = std.math.pi / 2.0,
             },
             .follow = .{ .accuracy = 0.3, .distance = 6.0, .speed = 4.5 },
             .patrol = .{
@@ -123,29 +124,24 @@ pub fn main(init: std.process.Init) !void {
                         .{ .x = 5, .y = 1, .z = 8 },
                     },
                 },
-                .wait = .{ .duration = 1.5 },
+                .wait = .init(1.5, .running),
                 .accuracy = 0.5,
                 .speed = 2.0,
             },
 
             .attack = .{
                 .range = 15.0,
-                .speed = 6.0,
-                .distance = 10.0,
+                .move = .{
+                    .speed = 7.0,
+                    .distance = .{ .current = 5.0, .min = 10.0, .max = 15.0, .change = .init(1.5, .finished) },
+                },
                 .weapon = .{
                     .type = .single,
-                    .cooldown = .{ .duration = 1.5 },
+                    .cooldown = .init(1.5, .running),
                     .bullet = .{ .speed = 80.0, .damage = 25.0 },
                 },
-                .jump = .{
-                    .force = 4.0,
-                    .cooldown = .{ .duration = 5.0 },
-                },
-                .strafe = .{
-                    .speed = 10.0,
-                    .direction = .{},
-                    .@"switch" = .{ .duration = 3.0 },
-                },
+                .jump = .{ .force = 4.0, .cooldown = .init(5.0, .running) },
+                .strafe = .{ .speed = 5.0, .change = .init(1.2, .running) },
             },
         },
         Health{ .current = 50.0, .max = 50.0 },
@@ -153,7 +149,7 @@ pub fn main(init: std.process.Init) !void {
         Scale{ .x = 1.0, .y = 2.0, .z = 1.0 },
         Rotation.identity,
         Model.init(Model.cube),
-        Collider{ .capsule = .{ .radius = 0.5, .half_height = 1 } },
+        Collider{ .type = .{ .capsule = .{ .radius = 0.5, .half_height = 1 } }, .layer = .enemy },
         Rigidbody{ .restitution = 0.0, .mass = 5.0 },
         Grounded{ .grounded = false },
     }, &.{});
@@ -162,9 +158,9 @@ pub fn main(init: std.process.Init) !void {
         Enemy{
             .state = .patrol,
             .vision = .{
-                .memory = .{ .duration = 5.0, .elapsed = 5.0 },
+                .memory = .init(5.0, .finished),
                 .distance = 15.0,
-                .angle = std.math.pi,
+                .angle = std.math.pi / 2.0,
             },
             .follow = .{ .accuracy = 0.3, .distance = 6.0, .speed = 4.5 },
             .patrol = .{
@@ -176,29 +172,24 @@ pub fn main(init: std.process.Init) !void {
                         .{ .x = 5, .y = 1, .z = -8 },
                     },
                 },
-                .wait = .{ .duration = 1.5 },
+                .wait = .init(1.5, .running),
                 .accuracy = 0.5,
                 .speed = 2.0,
             },
 
             .attack = .{
                 .range = 15.0,
-                .speed = 6.0,
-                .distance = 10.0,
+                .move = .{
+                    .speed = 7.0,
+                    .distance = .{ .current = 5.0, .min = 4.0, .max = 10.0, .change = .init(1.5, .finished) },
+                },
                 .weapon = .{
-                    .type = .{ .burst = .{ .length = .{ .duration = 0.5 }, .rpm = .{ .duration = 0.1 } } },
-                    .cooldown = .{ .duration = 1.5 },
+                    .type = .{ .burst = .{ .length = .init(0.5, .running), .rpm = .init(0.1, .running) } },
+                    .cooldown = .init(1.5, .running),
                     .bullet = .{ .speed = 50.0, .damage = 10.0 },
                 },
-                .jump = .{
-                    .force = 4.0,
-                    .cooldown = .{ .duration = 5.0 },
-                },
-                .strafe = .{
-                    .speed = 10.0,
-                    .direction = .{},
-                    .@"switch" = .{ .duration = 1.2 },
-                },
+                .jump = .{ .force = 4.0, .cooldown = .init(5.0, .running) },
+                .strafe = .{ .speed = 10.0, .change = .init(1.2, .running) },
             },
         },
         Health{ .current = 50.0, .max = 50.0 },
@@ -206,7 +197,7 @@ pub fn main(init: std.process.Init) !void {
         Scale{ .x = 1.0, .y = 2.0, .z = 1.0 },
         Rotation.identity,
         Model.init(Model.cube),
-        Collider{ .capsule = .{ .radius = 0.5, .half_height = 1 } },
+        Collider{ .type = .{ .capsule = .{ .radius = 0.5, .half_height = 1 } }, .layer = .enemy },
         Rigidbody{ .restitution = 0.0, .mass = 5.0 },
         Grounded{ .grounded = false },
     }, &.{});
@@ -215,7 +206,7 @@ pub fn main(init: std.process.Init) !void {
         Health{ .current = 50.0, .max = 50.0 },
         Position{ .x = -3, .y = 1.1 },
         Rigidbody{ .mass = 5.0, .restitution = 0.0 },
-        Collider{ .capsule = .{ .radius = 0.25, .half_height = 1 } },
+        Collider{ .type = .{ .capsule = .{ .radius = 0.25, .half_height = 1 } } },
         Grounded{ .grounded = false },
         Camera{
             .offset = 0.75,
@@ -302,7 +293,7 @@ pub fn main(init: std.process.Init) !void {
                             Scale{ .x = 0.1, .y = 0.1, .z = 0.1 },
                             Rotation.identity,
                             ModelInstance.cube,
-                            Collider{ .sphere = .{ .radius = 0.5 } },
+                            Collider{ .type = .{ .sphere = .{ .radius = 0.5 } } },
                             Rigidbody{ .velocity = forward.scale(50.0), .gravity = 0.0, .restitution = 0.0, .mass = 0.1 },
                         }, &.{});
                     }
@@ -352,9 +343,10 @@ pub fn main(init: std.process.Init) !void {
                     blk: {
                         const hit = Physics.raycast(
                             &ecs_engine,
-                            enemy_position.add(enemy_forward.scale(1.5)).coerce(Vector3),
+                            enemy_position.coerce(Vector3),
                             player_pos.add(Position{ .y = 0.5 }).subtract(enemy_position.*).normalize().coerce(Vector3),
                             enemy.vision.distance,
+                            Mask.all.remove(&.{.enemy}),
                         ) orelse break :blk false;
                         break :blk hit.body.eql(player_id);
                     };
@@ -439,25 +431,19 @@ pub fn main(init: std.process.Init) !void {
                         const right = Position{ .x = -player_direction.z, .y = 0.0, .z = player_direction.x };
 
                         // Randomly flip strafe direction on interval
-                        if (enemy.attack.strafe.@"switch".pass(delta_time)) {
-                            enemy.attack.strafe.direction.x = @min(0.05, rand.float(f32));
-                            if (rand.boolean()) {
-                                enemy.attack.strafe.direction.x = -enemy.attack.strafe.direction.x;
-                            }
-
-                            enemy.attack.strafe.direction.z = @min(0.05, rand.float(f32));
-                            if (rand.boolean()) {
-                                enemy.attack.strafe.direction.z = -enemy.attack.strafe.direction.z;
-                            }
-
-                            enemy.attack.strafe.direction = enemy.attack.strafe.direction.normalize();
-
-                            enemy.attack.strafe.@"switch".reset();
+                        if (enemy.attack.strafe.change.pass(delta_time)) {
+                            enemy.attack.strafe.direction = -1.0 + rand.float(f32) * 2;
+                            enemy.attack.strafe.change.reset();
                         }
 
-                        const strafe = right.multiply(enemy.attack.strafe.direction).scale(enemy.attack.strafe.speed);
+                        if (enemy.attack.move.distance.change.pass(delta_time)) {
+                            enemy.attack.move.distance.current = enemy.attack.move.distance.min + (enemy.attack.move.distance.max - enemy.attack.move.distance.min) * rand.float(f32);
+                            enemy.attack.move.distance.change.reset();
+                        }
+
+                        const strafe = right.scale(enemy.attack.strafe.direction * enemy.attack.strafe.speed);
                         const approach = player_direction.scale(
-                            std.math.clamp((player_distance - enemy.attack.distance) / enemy.attack.distance, -1.0, 1.0) * enemy.attack.speed,
+                            std.math.clamp((player_distance - enemy.attack.move.distance.current) / enemy.attack.move.distance.current, -1.0, 1.0) * enemy.attack.move.speed,
                         );
 
                         enemy_rb.velocity.x = strafe.x + approach.x;
@@ -493,7 +479,7 @@ pub fn main(init: std.process.Init) !void {
                                                 Scale{ .x = 0.1, .y = 0.1, .z = 0.1 },
                                                 Rotation.identity,
                                                 ModelInstance.cube,
-                                                Collider{ .sphere = .{ .radius = 0.5 } },
+                                                Collider{ .type = .{ .sphere = .{ .radius = 0.5 } } },
                                                 Rigidbody{
                                                     .velocity = player_direction.scale(enemy.attack.weapon.bullet.speed).coerce(Vector3),
                                                     .gravity = 0.0,
@@ -521,7 +507,7 @@ pub fn main(init: std.process.Init) !void {
                                         Scale{ .x = 0.1, .y = 0.1, .z = 0.1 },
                                         Rotation.identity,
                                         ModelInstance.cube,
-                                        Collider{ .sphere = .{ .radius = 0.5 } },
+                                        Collider{ .type = .{ .sphere = .{ .radius = 0.5 } } },
                                         Rigidbody{
                                             .velocity = player_direction.scale(enemy.attack.weapon.bullet.speed).coerce(Vector3),
                                             .gravity = 0.0,
@@ -715,7 +701,7 @@ pub fn makeArena(ecs_engine: *Ecs, size: f32) void {
         Scale{ .x = size, .y = 0.5, .z = size },
         Rotation.identity,
         Model.init(Model.cube),
-        Collider{ .box = .{ .x = size, .y = 0.5, .z = size } },
+        Collider{ .type = .{ .box = .{ .x = size, .y = 0.5, .z = size } } },
     }, &.{});
 
     _ = ecs_engine.createEntity(.{
@@ -723,11 +709,7 @@ pub fn makeArena(ecs_engine: *Ecs, size: f32) void {
         Scale{ .x = size, .y = wall_height, .z = wall_thickness },
         Rotation.identity,
         Model.init(Model.cube),
-        Collider{ .box = .{
-            .x = size,
-            .y = wall_height,
-            .z = wall_thickness,
-        } },
+        Collider{ .type = .{ .box = .{ .x = size, .y = wall_height, .z = wall_thickness } } },
     }, &.{});
 
     _ = ecs_engine.createEntity(.{
@@ -735,11 +717,7 @@ pub fn makeArena(ecs_engine: *Ecs, size: f32) void {
         Scale{ .x = size, .y = wall_height, .z = wall_thickness },
         Rotation.identity,
         Model.init(Model.cube),
-        Collider{ .box = .{
-            .x = size,
-            .y = wall_height,
-            .z = wall_thickness,
-        } },
+        Collider{ .type = .{ .box = .{ .x = size, .y = wall_height, .z = wall_thickness } } },
     }, &.{});
 
     _ = ecs_engine.createEntity(.{
@@ -747,11 +725,7 @@ pub fn makeArena(ecs_engine: *Ecs, size: f32) void {
         Scale{ .x = wall_thickness, .y = wall_height, .z = size },
         Rotation.identity,
         Model.init(Model.cube),
-        Collider{ .box = .{
-            .x = wall_thickness,
-            .y = wall_height,
-            .z = size,
-        } },
+        Collider{ .type = .{ .box = .{ .x = wall_thickness, .y = wall_height, .z = size } } },
     }, &.{});
 
     _ = ecs_engine.createEntity(.{
@@ -759,11 +733,7 @@ pub fn makeArena(ecs_engine: *Ecs, size: f32) void {
         Scale{ .x = wall_thickness, .y = wall_height, .z = size },
         Rotation.identity,
         Model.init(Model.cube),
-        Collider{ .box = .{
-            .x = wall_thickness,
-            .y = wall_height,
-            .z = size,
-        } },
+        Collider{ .type = .{ .box = .{ .x = wall_thickness, .y = wall_height, .z = size } } },
     }, &.{});
 
     _ = ecs_engine.createEntity(.{
@@ -771,7 +741,7 @@ pub fn makeArena(ecs_engine: *Ecs, size: f32) void {
         Scale{ .x = wall_thickness, .y = wall_height, .z = 10 },
         Rotation.identity,
         Model.init(Model.cube),
-        Collider{ .box = .{ .x = wall_thickness, .y = 3.0, .z = 10 } },
+        Collider{ .type = .{ .box = .{ .x = wall_thickness, .y = 3.0, .z = 10 } } },
     }, &.{});
 
     _ = ecs_engine.createEntity(.{
@@ -779,7 +749,7 @@ pub fn makeArena(ecs_engine: *Ecs, size: f32) void {
         Scale.one,
         Rotation.identity,
         Model.init(Model.cube),
-        Collider{ .box = .one },
+        Collider{ .type = .{ .box = .one } },
         Rigidbody{ .velocity = .{ .y = -0.5 }, .restitution = 0.5, .mass = 10.0 },
     }, &.{});
 
@@ -788,7 +758,7 @@ pub fn makeArena(ecs_engine: *Ecs, size: f32) void {
         Scale.one,
         Rotation.identity,
         Model.init(Model.cube),
-        Collider{ .box = .one },
+        Collider{ .type = .{ .box = .one } },
         Rigidbody{ .restitution = 0.5, .mass = 10.0 },
     }, &.{});
 }

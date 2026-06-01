@@ -3,7 +3,14 @@ const Vector3 = math.f32.Vector3;
 
 pub const Timer = struct {
     duration: f32,
-    elapsed: f32 = 0.0,
+    elapsed: f32,
+
+    pub fn init(duration: f32, state: enum { finished, running }) Timer {
+        return switch (state) {
+            .finished => .{ .duration = duration, .elapsed = duration + 0.1 },
+            .running => .{ .duration = duration, .elapsed = 0.0 },
+        };
+    }
 
     pub inline fn up(self: *Timer) bool {
         return self.duration <= self.elapsed;
@@ -15,8 +22,10 @@ pub const Timer = struct {
 
     /// Returns true if the timer is up.
     pub inline fn pass(self: *Timer, delta_time: f32) bool {
-        self.elapsed += delta_time;
-        return self.up();
+        const done = self.up();
+        if (!done) self.elapsed += delta_time;
+
+        return done;
     }
 };
 
@@ -68,10 +77,19 @@ patrol: struct {
 
 attack: struct {
     range: f32,
-    speed: f32,
-    distance: f32, // Ideal combat distance while strafing
+
+    move: struct {
+        speed: f32,
+        distance: struct {
+            current: f32,
+            max: f32,
+            min: f32,
+            change: Timer,
+        },
+    },
 
     weapon: struct {
+        // TODO: SHOTGUN
         type: union(enum) {
             burst: struct {
                 length: Timer,
@@ -95,7 +113,7 @@ attack: struct {
 
     strafe: struct {
         speed: f32,
-        direction: Vector3,
-        @"switch": Timer, // When to switch directions
+        direction: f32 = 0.0,
+        change: Timer,
     },
 },

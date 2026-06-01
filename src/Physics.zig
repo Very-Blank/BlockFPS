@@ -14,6 +14,7 @@ const Grounded = @import("components/Grounded.zig");
 const Sphere = Collider.Sphere;
 const Capsule = Collider.Capsule;
 const Box = Collider.Box;
+const Mask = Collider.Mask;
 
 const fixed_step: f32 = 1.0 / 120.0;
 const max_accumulation: f32 = 0.1;
@@ -289,6 +290,7 @@ pub fn raycast(
     origin: math.f32.Vector3,
     direction: math.f32.Vector3,
     length: f32,
+    mask: Mask,
 ) ?RaycastResult {
     var bodies = ecs_engine.getTupleIterator(.{
         .include = ecs.Template{ .components = &.{ Position, Collider } },
@@ -305,7 +307,9 @@ pub fn raycast(
         const position: *Position = body[0];
         const collider: *Collider = body[1];
 
-        const new: ?math.f32.Vector3 = switch (collider.*) {
+        if (!mask.contains(collider.layer)) continue;
+
+        const new: ?math.f32.Vector3 = switch (collider.type) {
             .sphere => |sphere| lineVsSphere(line, .{ .position = position.*, .sphere = sphere }),
             .capsule => |capsule| lineVsCapsule(line, .{ .position = position.*, .capsule = capsule }),
             .box => |box| lineVsBox(line, .{ .position = position.*, .box = box }),
@@ -333,9 +337,11 @@ pub fn raycast(
 
 /// Collision normal isn't guaranteed to be relative to any body.
 pub inline fn collision(body1: struct { position: Position, collider: Collider }, body2: struct { position: Position, collider: Collider }) ?Info {
+    if (!body1.collider.mask.contains(body2.collider.layer) or !body2.collider.mask.contains(body1.collider.layer)) return null;
+
     // FIXME: Write this in a better clean way!
-    return switch (body1.collider) {
-        .sphere => |sphere1| switch (body2.collider) {
+    return switch (body1.collider.type) {
+        .sphere => |sphere1| switch (body2.collider.type) {
             .sphere => |sphere2| sphereVsSphere(.{
                 .position = body1.position,
                 .sphere = sphere1,
@@ -358,7 +364,7 @@ pub inline fn collision(body1: struct { position: Position, collider: Collider }
                 .box = box2,
             }),
         },
-        .capsule => |capsule1| switch (body2.collider) {
+        .capsule => |capsule1| switch (body2.collider.type) {
             .capsule => |capsule2| capsuleVsCapsule(.{
                 .position = body1.position,
                 .capsule = capsule1,
@@ -381,7 +387,7 @@ pub inline fn collision(body1: struct { position: Position, collider: Collider }
                 .box = box2,
             }),
         },
-        .box => |box1| switch (body2.collider) {
+        .box => |box1| switch (body2.collider.type) {
             .box => |box2| boxVsBox(.{
                 .position = body1.position,
                 .box = box1,
@@ -425,17 +431,18 @@ pub fn sphereVsSphere(
     };
 }
 
+// FIXME: REMOVE subtract radius from height!
 pub fn sphereVsCapsule(
     body1: struct { position: Position, sphere: Sphere },
     body2: struct { position: Position, capsule: Capsule },
 ) ?Info {
     const closest = Position.closestPointOnLine(Position{
         .x = body2.position.x,
-        .y = body2.position.y - body2.capsule.half_height / 2,
+        .y = body2.position.y - (body2.capsule.half_height - body2.capsule.radius),
         .z = body2.position.z,
     }, Position{
         .x = body2.position.x,
-        .y = body2.position.y + body2.capsule.half_height / 2,
+        .y = body2.position.y + body2.capsule.half_height - body2.capsule.radius,
         .z = body2.position.z,
     }, body1.position);
 
@@ -487,11 +494,11 @@ pub fn capsuleVsBox(
 ) ?Info {
     const closest_body1_point = Position.closestPointOnLine(Position{
         .x = body1.position.x,
-        .y = body1.position.y - body1.capsule.half_height / 2,
+        .y = body1.position.y - (body1.capsule.half_height - body1.capsule.radius),
         .z = body1.position.z,
     }, Position{
         .x = body1.position.x,
-        .y = body1.position.y + body1.capsule.half_height / 2,
+        .y = body1.position.y + body1.capsule.half_height - body1.capsule.radius,
         .z = body1.position.z,
     }, body2.position);
 
@@ -525,21 +532,21 @@ pub fn capsuleVsCapsule(
 ) ?Info {
     const body1_closest = Position.closestPointOnLine(Position{
         .x = body1.position.x,
-        .y = body1.position.y - body1.capsule.half_height / 2,
+        .y = body1.position.y - (body1.capsule.half_height - body1.capsule.radius),
         .z = body1.position.z,
     }, Position{
         .x = body1.position.x,
-        .y = body1.position.y + body1.capsule.half_height / 2,
+        .y = body1.position.y + body1.capsule.half_height - body1.capsule.radius,
         .z = body1.position.z,
     }, body2.position);
 
     const body2_closest = Position.closestPointOnLine(Position{
         .x = body2.position.x,
-        .y = body2.position.y - body2.capsule.half_height / 2,
+        .y = body2.position.y - (body2.capsule.half_height - body2.capsule.radius),
         .z = body2.position.z,
     }, Position{
         .x = body2.position.x,
-        .y = body2.position.y + body2.capsule.half_height / 2,
+        .y = body2.position.y + body2.capsule.half_height - body2.capsule.radius,
         .z = body2.position.z,
     }, body1.position);
 
@@ -605,8 +612,8 @@ pub fn lineVsCapsule(line: Line, body: struct {
 
     const clamped_y = std.math.clamp(
         closest.y,
-        body.position.y - body.capsule.half_height / 2,
-        body.position.y + body.capsule.half_height / 2,
+        body.position.y - (body.capsule.half_height - body.capsule.radius),
+        body.position.y + body.capsule.half_height - body.capsule.radius,
     );
 
     const capsule_point = math.f32.Vector3{
