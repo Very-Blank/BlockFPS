@@ -111,7 +111,7 @@ pub fn main(init: std.process.Init) !void {
             .state = .patrol,
             .vision = .{
                 .memory = .init(5.0, .finished),
-                .distance = 15.0,
+                .distance = 30.0,
                 .angle = std.math.pi / 2.0,
             },
             .follow = .{ .accuracy = 0.3, .distance = 6.0, .speed = 4.5 },
@@ -130,7 +130,7 @@ pub fn main(init: std.process.Init) !void {
             },
 
             .attack = .{
-                .range = 15.0,
+                .range = 20.0,
                 .move = .{
                     .speed = 7.0,
                     .distance = .{ .current = 5.0, .min = 10.0, .max = 15.0, .change = .init(1.5, .finished) },
@@ -159,7 +159,7 @@ pub fn main(init: std.process.Init) !void {
             .state = .patrol,
             .vision = .{
                 .memory = .init(5.0, .finished),
-                .distance = 15.0,
+                .distance = 30.0,
                 .angle = std.math.pi / 2.0,
             },
             .follow = .{ .accuracy = 0.3, .distance = 6.0, .speed = 4.5 },
@@ -178,17 +178,17 @@ pub fn main(init: std.process.Init) !void {
             },
 
             .attack = .{
-                .range = 15.0,
+                .range = 20.0,
                 .move = .{
                     .speed = 7.0,
-                    .distance = .{ .current = 5.0, .min = 4.0, .max = 10.0, .change = .init(1.5, .finished) },
+                    .distance = .{ .current = 5.0, .min = 4.0, .max = 15.0, .change = .init(1.5, .finished) },
                 },
                 .weapon = .{
                     .type = .{ .burst = .{ .length = .init(0.5, .running), .rpm = .init(0.1, .running) } },
                     .cooldown = .init(1.5, .running),
                     .bullet = .{ .speed = 50.0, .damage = 10.0 },
                 },
-                .jump = .{ .force = 4.0, .cooldown = .init(5.0, .running) },
+                .jump = .{ .force = 4.0, .cooldown = .init(4.0, .running) },
                 .strafe = .{ .speed = 10.0, .change = .init(1.2, .running) },
             },
         },
@@ -426,11 +426,8 @@ pub fn main(init: std.process.Init) !void {
                     .attack => {
                         face_direction = player_direction.coerce(Vector3);
 
-                        // ── Erratic strafing ──────────────────────────────────────
-                        // Perpendicular to the player direction on the XZ plane
                         const right = Position{ .x = -player_direction.z, .y = 0.0, .z = player_direction.x };
 
-                        // Randomly flip strafe direction on interval
                         if (enemy.attack.strafe.change.pass(delta_time)) {
                             enemy.attack.strafe.direction = -1.0 + rand.float(f32) * 2;
                             enemy.attack.strafe.change.reset();
@@ -449,13 +446,11 @@ pub fn main(init: std.process.Init) !void {
                         enemy_rb.velocity.x = strafe.x + approach.x;
                         enemy_rb.velocity.z = strafe.z + approach.z;
 
-                        // ── Jump: grounded only, on its own cooldown ──────────────
                         if (enemy.attack.jump.cooldown.pass(delta_time) and grounded.grounded) {
                             enemy.attack.jump.cooldown.reset();
                             enemy_rb.velocity.y = enemy.attack.jump.force;
                         }
 
-                        // ── Shoot ─────────────────────────────────────────────────
                         if (enemy.attack.weapon.cooldown.pass(delta_time)) {
                             switch (enemy.attack.weapon.type) {
                                 .burst => |*burst| {
@@ -625,30 +620,26 @@ pub fn handleCollision(physics: *Physics, ecs_engine: *Ecs) void {
     }
 
     for (physics.rbVsRb_collisions.items, 0..) |collision, i| {
-        if (ecs_engine.entityHas(collision.body1, Grounded) and 0.9 < physics.rbVsRb_infos.items[i].normal.dot(Vector3.up)) {
-            const grounded = ecs_engine.getEntityComponent(collision.body1, Grounded) catch unreachable;
-            grounded.grounded = true;
-        }
+        inline for (.{ .{ .self = "body1", .other = "body2" }, .{ .self = "body2", .other = "body1" } }) |fields| {
+            if (ecs_engine.entityHas(@field(collision, fields.self), Grounded) and 0.9 < physics.rbVsRb_infos.items[i].normal.dot(Vector3.up)) {
+                const grounded = ecs_engine.getEntityComponent(@field(collision, fields.self), Grounded) catch unreachable;
+                grounded.grounded = true;
+            }
 
-        if (ecs_engine.entityHas(collision.body2, Grounded) and 0.9 < physics.rbVsRb_infos.items[i].normal.negate().dot(Vector3.up)) {
-            const grounded = ecs_engine.getEntityComponent(collision.body2, Grounded) catch unreachable;
-            grounded.grounded = true;
-        }
+            if (ecs_engine.entityHas(@field(collision, fields.self), Bullet)) {
+                const bullet = ecs_engine.getEntityComponent(@field(collision, fields.self), Bullet) catch unreachable;
+                if (ecs_engine.entityHas(@field(collision, fields.other), Enemy)) {
+                    const enemy = ecs_engine.getEntityComponent(@field(collision, fields.other), Enemy) catch unreachable;
+                    enemy.vision.memory.reset();
+                }
 
-        if (ecs_engine.entityHas(collision.body1, Health) and ecs_engine.entityHas(collision.body2, Bullet)) {
-            const health = ecs_engine.getEntityComponent(collision.body1, Health) catch unreachable;
-            const bullet = ecs_engine.getEntityComponent(collision.body2, Bullet) catch unreachable;
-            health.current -= bullet.damage;
+                if (ecs_engine.entityHas(@field(collision, fields.other), Health)) {
+                    const health = ecs_engine.getEntityComponent(@field(collision, fields.other), Health) catch unreachable;
+                    health.current -= bullet.damage;
+                }
 
-            ecs_engine.destroyEntity(collision.body2);
-        }
-
-        if (ecs_engine.entityHas(collision.body2, Health) and ecs_engine.entityHas(collision.body1, Bullet)) {
-            const health = ecs_engine.getEntityComponent(collision.body2, Health) catch unreachable;
-            const bullet = ecs_engine.getEntityComponent(collision.body1, Bullet) catch unreachable;
-            health.current -= bullet.damage;
-
-            ecs_engine.destroyEntity(collision.body1);
+                ecs_engine.destroyEntity(@field(collision, fields.self));
+            }
         }
     }
 
