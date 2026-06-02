@@ -626,6 +626,7 @@ pub fn lineVsCapsule(line: Line, body: struct {
     return capsule_point;
 }
 
+// https://en.wikipedia.org/wiki/Slab_method
 pub fn lineVsBox(
     line: Line,
     body: struct {
@@ -633,14 +634,25 @@ pub fn lineVsBox(
         box: Box,
     },
 ) ?math.f32.Vector3 {
-    const closest = line.start.closestPointOnLine(line.end, body.position);
+    const v = line.end.subtract(line.start);
+    const r = v.normalize();
+    const o = line.start;
+
+    var close: f32 = -std.math.inf(f32);
+    var far: f32 = std.math.inf(f32);
 
     inline for (.{ "x", "y", "z" }) |axis| {
-        const min = @field(body.position, axis) - @field(body.box, axis) / 2.0;
-        const max = @field(body.position, axis) + @field(body.box, axis) / 2.0;
+        const low = @field(body.position, axis) - @field(body.box, axis) / 2.0;
+        const high = @field(body.position, axis) + @field(body.box, axis) / 2.0;
 
-        if (@field(closest, axis) < min or max < @field(closest, axis)) return null;
+        const t_low = (low - @field(o, axis)) / @field(r, axis);
+        const t_high = (high - @field(o, axis)) / @field(r, axis);
+
+        close = @max(close, @min(t_low, t_high));
+        far = @min(far, @max(t_low, t_high));
     }
 
-    return closest;
+    if (far <= close or far < 0 or v.length() < close) return null;
+
+    return o.add(r.scale(close));
 }

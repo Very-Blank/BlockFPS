@@ -17,9 +17,9 @@ pub const Style = enum {
 pub fn GuiWindow(comptime T: type) type {
     return struct {
         name: [:0]const u8,
-        open: bool,
+        open: bool = false,
+        state: State = .closed,
         flags: i32 = 0,
-        state: State,
         data: T,
         draw_fn: *const fn (data: *T) void,
 

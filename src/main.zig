@@ -60,10 +60,14 @@ pub fn main(init: std.process.Init) !void {
     defer gui.deinit();
 
     const DebugData: type = struct {
-        spawn_pressed: bool = false,
-        position: Position = .zero,
-        scale: Scale = .one,
-        rotation: Vector3 = .zero,
+        pub fn Value(comptime T: type) type {
+            return struct {
+                value: T,
+                has: bool = false,
+            };
+        }
+
+        position: Value(Position) = .{ .value = .zero },
     };
 
     var debug_window: ImGui.GuiWindow(DebugData) = .{
@@ -73,21 +77,21 @@ pub fn main(init: std.process.Init) !void {
         .data = .{},
         .draw_fn = struct {
             pub fn draw(data: *DebugData) void {
-                if (imgui.ImGui_CollapsingHeader("Position", 0)) {
-                    _ = imgui.ImGui_DragFloat3("X Y Z##pos", @ptrCast(&data.position));
+                if (data.position.has and imgui.ImGui_CollapsingHeader("Position", 0)) {
+                    _ = imgui.ImGui_DragFloat3("X Y Z##pos", @ptrCast(&data.position.value));
                 }
 
-                if (imgui.ImGui_CollapsingHeader("Scale", 0)) {
-                    _ = imgui.ImGui_DragFloat3("X Y Z##scale", @ptrCast(&data.scale));
-                }
+                // if (imgui.ImGui_CollapsingHeader("Scale", 0)) {
+                //     _ = imgui.ImGui_DragFloat3("X Y Z##scale", @ptrCast(&data.scale));
+                // }
+                //
+                // if (imgui.ImGui_CollapsingHeader("Rotation", 0)) {
+                //     _ = imgui.ImGui_DragFloat3("X Y Z##rot", @ptrCast(&data.rotation));
+                // }
 
-                if (imgui.ImGui_CollapsingHeader("Rotation", 0)) {
-                    _ = imgui.ImGui_DragFloat3("X Y Z##rot", @ptrCast(&data.rotation));
-                }
+                // imgui.ImGui_Separator();
 
-                imgui.ImGui_Separator();
-
-                data.spawn_pressed = imgui.ImGui_Button("Spawn");
+                // data.spawn_pressed = imgui.ImGui_Button("Spawn");
             }
         }.draw,
     };
@@ -102,6 +106,7 @@ pub fn main(init: std.process.Init) !void {
     defer ecs_engine.deinit();
 
     const player_singleton = ecs_engine.createSingleton(.{ .components = &.{ Position, Rigidbody, Camera } });
+    const debug_selection_singleton = ecs_engine.createSingleton(.{});
 
     var physics: Physics = .init(gpa);
     defer physics.deinit();
@@ -197,24 +202,25 @@ pub fn main(init: std.process.Init) !void {
                     );
 
                     if (hit) |raycast_result| {
-                        std.debug.print("position: {any}\n", .{raycast_result.position});
-                        std.debug.print("entity: {any}, generation: {any}\n", .{
-                            raycast_result.body.entity.value(),
-                            raycast_result.body.generation.value(),
-                        });
+                        ecs_engine.setSingletonsEntity(debug_selection_singleton, raycast_result.body) catch unreachable;
+                        std.debug.print("hit\n", .{});
 
-                        std.debug.print("rigidbody: {any}\n", .{ecs_engine.entityHas(raycast_result.body, Rigidbody)});
+                        if (ecs_engine.entityHas(raycast_result.body, Position)) {
+                            const pos = ecs_engine.getEntityComponent(raycast_result.body, Position) catch unreachable;
+                            debug_window.data.position.value = pos.*;
+                            debug_window.data.position.has = true;
+                        }
                     }
                 }
-            }
-
-            if (debug_window.data.spawn_pressed) {
-                _ = ecs_engine.createEntity(.{
-                    debug_window.data.position,
-                    debug_window.data.scale,
-                    Rotation.initFromVector(debug_window.data.rotation.segment(std.math.pi)),
-                    Model.init(Model.cube),
-                }, &.{});
+            } else {
+                if (ecs_engine.getSingletonsEntity(debug_selection_singleton)) |selected_entity| {
+                    if (ecs_engine.entityHas(selected_entity, Position)) {
+                        const pos = ecs_engine.getEntityComponent(selected_entity, Position) catch unreachable;
+                        pos.* = debug_window.data.position.value;
+                    } else {
+                        debug_window.data.position.has = false;
+                    }
+                }
             }
         }
 
