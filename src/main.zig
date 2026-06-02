@@ -5,6 +5,8 @@ const ecs = @import("ecs");
 const glfw = @import("glfw");
 const math = @import("math");
 
+const enemies = @import("enemies.zig");
+
 const Io = std.Io;
 
 const Vector3 = math.f32.Vector3;
@@ -45,7 +47,7 @@ pub fn main(init: std.process.Init) !void {
         break :blk seed;
     });
 
-    const rand = prng.random();
+    const random: std.Random = prng.random();
 
     var window = try Window.init("Game", 100, 100);
     defer window.deinit();
@@ -99,125 +101,28 @@ pub fn main(init: std.process.Init) !void {
     var ecs_engine: Ecs = try .init(fba.allocator());
     defer ecs_engine.deinit();
 
+    const player_singleton = ecs_engine.createSingleton(.{ .components = &.{ Position, Rigidbody, Camera } });
+
     var physics: Physics = .init(gpa);
     defer physics.deinit();
 
-    const player_singleton = ecs_engine.createSingleton(.{ .components = &.{ Position, Rigidbody, Camera } });
-
     makeArena(&ecs_engine, 50.0);
-
-    _ = ecs_engine.createEntity(.{
-        Enemy{
-            .state = .patrol,
-            .vision = .{
-                .memory = .init(5.0, .finished),
-                .distance = 30.0,
-                .angle = std.math.pi / 2.0,
-            },
-            .follow = .{ .accuracy = 0.3, .distance = 6.0, .speed = 4.5 },
-            .patrol = .{
-                .path = .{
-                    .waypoints = .{
-                        .{ .x = 0, .y = 1, .z = 5 },
-                        .{ .x = 8, .y = 1, .z = 3 },
-                        .{ .x = -8, .y = 1, .z = 8 },
-                        .{ .x = 5, .y = 1, .z = 8 },
-                    },
-                },
-                .wait = .init(1.5, .running),
-                .accuracy = 0.5,
-                .speed = 2.0,
-            },
-
-            .attack = .{
-                .range = 20.0,
-                .move = .{
-                    .speed = 7.0,
-                    .distance = .{ .current = 5.0, .min = 10.0, .max = 15.0, .change = .init(1.5, .finished) },
-                },
-                .weapon = .{
-                    .type = .single,
-                    .cooldown = .init(1.5, .running),
-                    .bullet = .{ .speed = 80.0, .damage = 25.0 },
-                },
-                .jump = .{ .force = 4.0, .cooldown = .init(5.0, .running) },
-                .strafe = .{ .speed = 5.0, .change = .init(1.2, .running) },
-            },
-        },
-        Health{ .current = 50.0, .max = 50.0 },
-        Position{ .y = 1.5, .z = 3 },
-        Scale{ .x = 1.0, .y = 2.0, .z = 1.0 },
-        Rotation.identity,
-        Model.init(Model.cube),
-        Collider{ .type = .{ .capsule = .{ .radius = 0.5, .half_height = 1 } }, .layer = .enemy },
-        Rigidbody{ .restitution = 0.0, .mass = 5.0 },
-        Grounded{ .grounded = false },
-    }, &.{});
-
-    _ = ecs_engine.createEntity(.{
-        Enemy{
-            .state = .patrol,
-            .vision = .{
-                .memory = .init(5.0, .finished),
-                .distance = 30.0,
-                .angle = std.math.pi / 2.0,
-            },
-            .follow = .{ .accuracy = 0.3, .distance = 6.0, .speed = 4.5 },
-            .patrol = .{
-                .path = .{
-                    .waypoints = .{
-                        .{ .x = 0, .y = 1, .z = 9 },
-                        .{ .x = 8, .y = 1, .z = -4 },
-                        .{ .x = -8, .y = 1, .z = -8 },
-                        .{ .x = 5, .y = 1, .z = -8 },
-                    },
-                },
-                .wait = .init(1.5, .running),
-                .accuracy = 0.5,
-                .speed = 2.0,
-            },
-
-            .attack = .{
-                .range = 20.0,
-                .move = .{
-                    .speed = 7.0,
-                    .distance = .{ .current = 5.0, .min = 4.0, .max = 15.0, .change = .init(1.5, .finished) },
-                },
-                .weapon = .{
-                    .type = .{ .burst = .{ .length = .init(0.5, .running), .rpm = .init(0.1, .running) } },
-                    .cooldown = .init(1.5, .running),
-                    .bullet = .{ .speed = 50.0, .damage = 10.0 },
-                },
-                .jump = .{ .force = 4.0, .cooldown = .init(4.0, .running) },
-                .strafe = .{ .speed = 10.0, .change = .init(1.2, .running) },
-            },
-        },
-        Health{ .current = 50.0, .max = 50.0 },
-        Position{ .y = 1.5, .z = 5, .x = 5 },
-        Scale{ .x = 1.0, .y = 2.0, .z = 1.0 },
-        Rotation.identity,
-        Model.init(Model.cube),
-        Collider{ .type = .{ .capsule = .{ .radius = 0.5, .half_height = 1 } }, .layer = .enemy },
-        Rigidbody{ .restitution = 0.0, .mass = 5.0 },
-        Grounded{ .grounded = false },
-    }, &.{});
 
     const player_entity = ecs_engine.createEntity(.{
         Health{ .current = 50.0, .max = 50.0 },
         Position{ .x = -3, .y = 1.1 },
         Rigidbody{ .mass = 5.0, .restitution = 0.0 },
-        Collider{ .type = .{ .capsule = .{ .radius = 0.25, .half_height = 1 } } },
+        Collider{ .type = .{ .capsule = .{ .radius = 0.25, .half_height = 1 } }, .layer = .player },
         Grounded{ .grounded = false },
         Camera{
             .offset = 0.75,
-            .projection = .{ .far = 1000.0, .near = 0.001, .fov = 90 },
+            .projection = .{
+                .mat = .initPerspective(90.0, @as(f32, @floatFromInt(window.logical.width)) / @as(f32, @floatFromInt(window.logical.height)), 1000.0, 0.001),
+                .far = 1000.0,
+                .near = 0.001,
+                .fov = 90,
+            },
             .rotation = .{ .pitch = 0.0, .yaw = 0.0 },
-            .view = .initPerspective(
-                90.0,
-                @as(f32, @floatFromInt(window.width)) / @as(f32, @floatFromInt(window.height)),
-                100.0,
-                0.01,
-            ),
         },
     }, &.{});
 
@@ -249,308 +154,114 @@ pub fn main(init: std.process.Init) !void {
         if (debug_window.state == .just_closed) {
             ignore_input = false;
             window.setMouseMode(.disabled);
-        } else if (debug_window.state.isOpen() and debug_window.data.spawn_pressed) {
-            _ = ecs_engine.createEntity(.{
-                debug_window.data.position,
-                debug_window.data.scale,
-                Rotation.initFromVector(debug_window.data.rotation.segment(std.math.pi)),
-                Model.init(Model.cube),
-            }, &.{});
+        } else if (debug_window.state.isOpen()) {
+            if (window.input.mouse_state.left_click == .justPressed) {
+                if (ecs_engine.getSingletonsEntity(player_singleton)) |id| {
+                    const camera = ecs_engine.getEntityComponent(id, Camera) catch unreachable;
+                    const position = ecs_engine.getEntityComponent(id, Position) catch unreachable;
+
+                    const view_matrix = math.f32.Mat4.initView(
+                        position.add(Position{ .y = camera.offset }).negate(),
+                        math.f32.Quaternion.initCamRotation(-camera.rotation.yaw, -camera.rotation.pitch),
+                    );
+
+                    const inverse_projection = camera.projection.mat.inverse();
+                    const inverse_view = view_matrix.inverse();
+
+                    const ray_eye = inverse_projection.multiplyVector([4]f32{
+                        (2 * window.input.mouse_state.position.x) / @as(f32, @floatFromInt(window.logical.width)) - 1.0,
+                        1.0 - (2 * window.input.mouse_state.position.y) / @as(f32, @floatFromInt(window.logical.height)),
+                        -1.0,
+                        1.0,
+                    });
+
+                    const ray_world = inverse_view.multiplyVector([4]f32{
+                        ray_eye[0],
+                        ray_eye[1],
+                        -1.0,
+                        0.0,
+                    });
+
+                    const normal = (Vector3{
+                        .x = ray_world[0],
+                        .y = ray_world[1],
+                        .z = ray_world[2],
+                    }).normalize();
+
+                    const hit = Physics.raycast(
+                        &ecs_engine,
+                        position.add(Position{ .y = camera.offset }).coerce(Vector3),
+                        normal,
+                        200.0,
+                        Mask.all.remove(&.{.player}),
+                    );
+
+                    if (hit) |raycast_result| {
+                        std.debug.print("position: {any}\n", .{raycast_result.position});
+                        std.debug.print("entity: {any}, generation: {any}\n", .{
+                            raycast_result.body.entity.value(),
+                            raycast_result.body.generation.value(),
+                        });
+
+                        std.debug.print("rigidbody: {any}\n", .{ecs_engine.entityHas(raycast_result.body, Rigidbody)});
+                    }
+                }
+            }
+
+            if (debug_window.data.spawn_pressed) {
+                _ = ecs_engine.createEntity(.{
+                    debug_window.data.position,
+                    debug_window.data.scale,
+                    Rotation.initFromVector(debug_window.data.rotation.segment(std.math.pi)),
+                    Model.init(Model.cube),
+                }, &.{});
+            }
         }
 
         update_view: {
             var iterator = ecs_engine.getIterator(.{ .component = Camera }) orelse break :update_view;
 
-            const aspect: f32 = @as(f32, @floatFromInt(window.width)) / @as(f32, @floatFromInt(window.height));
+            const aspect: f32 = @as(f32, @floatFromInt(window.logical.width)) / @as(f32, @floatFromInt(window.logical.height));
 
             while (iterator.next()) |camera| {
                 camera.updateView(aspect);
             }
         }
 
-        var view_matrix, var projection_matrix = init: {
-            if (ecs_engine.getSingletonsEntity(player_singleton)) |id| {
-                const player: Player = .{
-                    .position = ecs_engine.getEntityComponent(id, Position) catch unreachable,
-                    .rigidbody = ecs_engine.getEntityComponent(id, Rigidbody) catch unreachable,
-                    .grounded = ecs_engine.getEntityComponent(id, Grounded) catch unreachable,
-                    .camera = ecs_engine.getEntityComponent(id, Camera) catch unreachable,
-                };
+        if (ecs_engine.getSingletonsEntity(player_singleton)) |id| {
+            const player: Player = .{
+                .position = ecs_engine.getEntityComponent(id, Position) catch unreachable,
+                .rigidbody = ecs_engine.getEntityComponent(id, Rigidbody) catch unreachable,
+                .grounded = ecs_engine.getEntityComponent(id, Grounded) catch unreachable,
+                .camera = ecs_engine.getEntityComponent(id, Camera) catch unreachable,
+            };
 
-                if (!ignore_input) {
-                    handlePlayerInput(&window, player, delta_time);
+            if (!ignore_input) {
+                handlePlayerInput(&window, player, delta_time);
 
-                    if (window.input.mouse_state.left_click == .justPressed) {
-                        const forward = Vector3.forward
-                            .rotateAroundAxis(.x, player.camera.rotation.pitch)
-                            .rotateAroundAxis(.y, player.camera.rotation.yaw)
-                            .normalize()
-                            .negate();
+                if (window.input.mouse_state.left_click == .justPressed) {
+                    const forward = Vector3.forward
+                        .rotateAroundAxis(.x, player.camera.rotation.pitch)
+                        .rotateAroundAxis(.y, player.camera.rotation.yaw)
+                        .normalize()
+                        .negate();
 
-                        _ = ecs_engine.createEntity(.{
-                            Bullet{ .damage = 10, .duration = 3.0, .max_deflection_angle = 0.85 },
-                            player.position.add(forward).add(Position{ .y = player.camera.offset }),
-                            Scale{ .x = 0.1, .y = 0.1, .z = 0.1 },
-                            Rotation.identity,
-                            ModelInstance.cube,
-                            Collider{ .type = .{ .sphere = .{ .radius = 0.5 } } },
-                            Rigidbody{ .velocity = forward.scale(50.0), .gravity = 0.0, .restitution = 0.0, .mass = 0.1 },
-                        }, &.{});
-                    }
-                }
-
-                break :init .{
-                    math.f32.Mat4.initView(
-                        player.position.add(Position{ .y = player.camera.offset }).negate(),
-                        math.f32.Quaternion.initCamRotation(
-                            -player.camera.rotation.yaw,
-                            -player.camera.rotation.pitch,
-                        ),
-                    ),
-                    player.camera.view,
-                };
-            }
-
-            break :init .{ math.f32.Mat4.identity, math.f32.Mat4.identity };
-        };
-
-        enemy: {
-            const player_id = ecs_engine.getSingletonsEntity(player_singleton) orelse break :enemy;
-            const player_pos = ecs_engine.getEntityComponent(player_id, Position) catch unreachable;
-
-            var iterator = ecs_engine.getTupleIterator(.{
-                .include = ecs.Template{ .components = &.{ Enemy, Position, Rotation, Rigidbody, Grounded } },
-            }) orelse break :enemy;
-
-            while (iterator.next()) |tuple| {
-                const enemy: *Enemy = tuple[0];
-                const enemy_position: *Position = tuple[1];
-                const enemy_rot: *Rotation = tuple[2];
-                const enemy_rb: *Rigidbody = tuple[3];
-                const grounded: *Grounded = tuple[4];
-
-                const to_player = player_pos.subtract(enemy_position.*);
-                const player_distance = to_player.length();
-                if (player_distance < 0.001) continue;
-
-                const player_direction = to_player.normalize();
-
-                const enemy_forward: Vector3 = .rotate(.forward, enemy_rot.*);
-
-                const player_visible =
-                    @cos(enemy.vision.angle) <= enemy_forward.dot(player_direction) and
-                    player_distance <= enemy.vision.distance and
-                    blk: {
-                        const hit = Physics.raycast(
-                            &ecs_engine,
-                            enemy_position.coerce(Vector3),
-                            player_pos.add(Position{ .y = 0.5 }).subtract(enemy_position.*).normalize().coerce(Vector3),
-                            enemy.vision.distance,
-                            Mask.all.remove(&.{.enemy}),
-                        ) orelse break :blk false;
-                        break :blk hit.body.eql(player_id);
-                    };
-
-                // ── Sight memory: keep chasing N seconds after losing LOS ─────────
-                if (player_visible) {
-                    enemy.vision.memory.reset();
-                } else {
-                    _ = enemy.vision.memory.pass(delta_time);
-                }
-
-                const player_detected = player_visible or !enemy.vision.memory.up();
-
-                // ── State transitions ─────────────────────────────────────────────
-                enemy.state = next_state: switch (enemy.state) {
-                    .patrol => if (player_detected) .follow else .patrol,
-                    .follow => if (!player_detected) {
-                        break :next_state .patrol;
-                    } else if (player_distance <= enemy.attack.range and player_visible) {
-                        break :next_state .attack;
-                    } else {
-                        break :next_state .follow;
-                    },
-                    .attack => if (!player_detected) {
-                        break :next_state .patrol;
-                    } else if (!player_visible and enemy.attack.range < player_distance) {
-                        break :next_state .follow;
-                    } else {
-                        break :next_state .attack;
-                    },
-                };
-
-                // ── Behavior ──────────────────────────────────────────────────────
-                var face_direction = enemy_forward;
-
-                switch (enemy.state) {
-                    .patrol => {
-                        if (!enemy.patrol.wait.pass(delta_time)) {
-                            enemy_rb.velocity.x = 0;
-                            enemy_rb.velocity.z = 0;
-                        } else {
-                            const current_waypoint: Vector3 = enemy.patrol.path.current();
-
-                            if (enemy_position.distance(current_waypoint) <= enemy.patrol.accuracy) {
-                                enemy.patrol.path.next(rand.int(usize));
-                                enemy.patrol.wait.reset();
-
-                                enemy_rb.velocity.x = 0;
-                                enemy_rb.velocity.z = 0;
-                            } else {
-                                const movement_direction = current_waypoint.subtract(enemy_position.*).normalize();
-                                const movement = movement_direction.scale(enemy.patrol.speed);
-
-                                enemy_rb.velocity.x = movement.x;
-                                enemy_rb.velocity.z = movement.z;
-
-                                face_direction = movement_direction;
-                            }
-                        }
-                    },
-
-                    .follow => {
-                        const adjusted = player_direction.scale(player_distance - enemy.follow.distance);
-
-                        if (enemy.follow.accuracy < adjusted.length()) {
-                            const move = adjusted.normalize().scale(enemy.follow.speed);
-                            enemy_rb.velocity.x = move.x;
-                            enemy_rb.velocity.z = move.z;
-                        } else {
-                            enemy_rb.velocity.x = 0;
-                            enemy_rb.velocity.z = 0;
-                        }
-
-                        face_direction = player_direction.coerce(Vector3);
-                    },
-
-                    .attack => {
-                        face_direction = player_direction.coerce(Vector3);
-
-                        const right = Position{ .x = -player_direction.z, .y = 0.0, .z = player_direction.x };
-
-                        if (enemy.attack.strafe.change.pass(delta_time)) {
-                            enemy.attack.strafe.direction = -1.0 + rand.float(f32) * 2;
-                            enemy.attack.strafe.change.reset();
-                        }
-
-                        if (enemy.attack.move.distance.change.pass(delta_time)) {
-                            enemy.attack.move.distance.current = enemy.attack.move.distance.min + (enemy.attack.move.distance.max - enemy.attack.move.distance.min) * rand.float(f32);
-                            enemy.attack.move.distance.change.reset();
-                        }
-
-                        const strafe = right.scale(enemy.attack.strafe.direction * enemy.attack.strafe.speed);
-                        const approach = player_direction.scale(
-                            std.math.clamp((player_distance - enemy.attack.move.distance.current) / enemy.attack.move.distance.current, -1.0, 1.0) * enemy.attack.move.speed,
-                        );
-
-                        enemy_rb.velocity.x = strafe.x + approach.x;
-                        enemy_rb.velocity.z = strafe.z + approach.z;
-
-                        if (enemy.attack.jump.cooldown.pass(delta_time) and grounded.grounded) {
-                            enemy.attack.jump.cooldown.reset();
-                            enemy_rb.velocity.y = enemy.attack.jump.force;
-                        }
-
-                        if (enemy.attack.weapon.cooldown.pass(delta_time)) {
-                            switch (enemy.attack.weapon.type) {
-                                .burst => |*burst| {
-                                    if (burst.length.pass(delta_time)) {
-                                        burst.length.reset();
-                                        burst.rpm.reset();
-                                        enemy.attack.weapon.cooldown.reset();
-                                    } else {
-                                        if (burst.rpm.pass(delta_time)) {
-                                            _ = ecs_engine.createEntity(.{
-                                                Bullet{
-                                                    .damage = enemy.attack.weapon.bullet.damage,
-                                                    .duration = 3.0,
-                                                    .max_deflection_angle = 0.85,
-                                                },
-                                                Position{
-                                                    .x = enemy_position.x + enemy_forward.x * 0.9,
-                                                    .y = enemy_position.y + enemy_forward.y * 0.9,
-                                                    .z = enemy_position.z + enemy_forward.z * 0.9,
-                                                },
-                                                Scale{ .x = 0.1, .y = 0.1, .z = 0.1 },
-                                                Rotation.identity,
-                                                ModelInstance.cube,
-                                                Collider{ .type = .{ .sphere = .{ .radius = 0.5 } } },
-                                                Rigidbody{
-                                                    .velocity = player_direction.scale(enemy.attack.weapon.bullet.speed).coerce(Vector3),
-                                                    .gravity = 0.0,
-                                                    .restitution = 0.0,
-                                                    .mass = 0.1,
-                                                },
-                                            }, &.{});
-
-                                            burst.rpm.reset();
-                                        }
-                                    }
-                                },
-                                .single => {
-                                    _ = ecs_engine.createEntity(.{
-                                        Bullet{
-                                            .damage = enemy.attack.weapon.bullet.damage,
-                                            .duration = 3.0,
-                                            .max_deflection_angle = 0.85,
-                                        },
-                                        Position{
-                                            .x = enemy_position.x + enemy_forward.x * 0.9,
-                                            .y = enemy_position.y + enemy_forward.y * 0.9,
-                                            .z = enemy_position.z + enemy_forward.z * 0.9,
-                                        },
-                                        Scale{ .x = 0.1, .y = 0.1, .z = 0.1 },
-                                        Rotation.identity,
-                                        ModelInstance.cube,
-                                        Collider{ .type = .{ .sphere = .{ .radius = 0.5 } } },
-                                        Rigidbody{
-                                            .velocity = player_direction.scale(enemy.attack.weapon.bullet.speed).coerce(Vector3),
-                                            .gravity = 0.0,
-                                            .restitution = 0.0,
-                                            .mass = 0.1,
-                                        },
-                                    }, &.{});
-
-                                    enemy.attack.weapon.cooldown.reset();
-                                },
-                            }
-                        }
-                    },
-                }
-
-                face_direction.y = 0.0;
-                if (0.0001 < face_direction.magnitude()) {
-                    const yaw = std.math.atan2(face_direction.x, face_direction.z);
-                    enemy_rot.* = Rotation.initFromRadians(.y, yaw);
+                    _ = ecs_engine.createEntity(.{
+                        Bullet{ .damage = 10, .duration = 3.0, .max_deflection_angle = 0.85 },
+                        player.position.add(forward).add(Position{ .y = player.camera.offset }),
+                        Scale{ .x = 0.1, .y = 0.1, .z = 0.1 },
+                        Rotation.identity,
+                        ModelInstance.cube,
+                        Collider{ .type = .{ .sphere = .{ .radius = 0.5 } } },
+                        Rigidbody{ .velocity = forward.scale(50.0), .gravity = 0.0, .restitution = 0.0, .mass = 0.1 },
+                    }, &.{});
                 }
             }
         }
 
-        render: {
-            var tuple_iterator = ecs_engine.getTupleIterator(.{
-                .include = ecs.Template{ .components = &.{ Position, Scale, Rotation, Model } },
-            }) orelse break :render;
+        enemies.update(&ecs_engine, player_singleton, random, delta_time);
 
-            rendering.startRender();
-
-            glad.glUniformMatrix4fv(rendering.program.getUniform("view"), 1, glad.GL_FALSE, &view_matrix.fields[0][0]);
-            glad.glUniformMatrix4fv(rendering.program.getUniform("projection"), 1, glad.GL_FALSE, &projection_matrix.fields[0][0]);
-
-            rendering.drawModels(&tuple_iterator);
-        }
-
-        render: {
-            var tuple_iterator = ecs_engine.getTupleIterator(.{
-                .include = ecs.Template{ .components = &.{ Position, Scale, Rotation, ModelInstance } },
-            }) orelse break :render;
-
-            rendering.startRender();
-
-            glad.glUniformMatrix4fv(rendering.program.getUniform("view"), 1, glad.GL_FALSE, &view_matrix.fields[0][0]);
-            glad.glUniformMatrix4fv(rendering.program.getUniform("projection"), 1, glad.GL_FALSE, &projection_matrix.fields[0][0]);
-
-            rendering.drawIntances(&tuple_iterator);
-        }
+        rendering.render(&ecs_engine, player_singleton);
 
         destroy: {
             var iterator = ecs_engine.getIterator(.{
@@ -649,8 +360,8 @@ pub fn handleCollision(physics: *Physics, ecs_engine: *Ecs) void {
 const Player = struct { position: *Position, rigidbody: *Rigidbody, grounded: *Grounded, camera: *Camera };
 
 pub fn handlePlayerInput(window: *Window, player: Player, _: f32) void {
-    player.camera.rotation.yaw -= window.input.mouse_state.motion.x;
-    player.camera.rotation.pitch += window.input.mouse_state.motion.y;
+    player.camera.rotation.yaw -= window.input.mouse_state.motion.x / 1000.0;
+    player.camera.rotation.pitch -= window.input.mouse_state.motion.y / 1000.0;
 
     var movement_input: Vector3 = .zero;
     if (window.input.getKeyState(.w).isDown()) {
@@ -752,4 +463,98 @@ pub fn makeArena(ecs_engine: *Ecs, size: f32) void {
         Collider{ .type = .{ .box = .one } },
         Rigidbody{ .restitution = 0.5, .mass = 10.0 },
     }, &.{});
+
+    // _ = ecs_engine.createEntity(.{
+    //     Enemy{
+    //         .state = .patrol,
+    //         .vision = .{
+    //             .memory = .init(5.0, .finished),
+    //             .distance = 30.0,
+    //             .angle = std.math.pi / 2.0,
+    //         },
+    //         .follow = .{ .accuracy = 0.3, .distance = 6.0, .speed = 4.5 },
+    //         .patrol = .{
+    //             .path = .{
+    //                 .waypoints = .{
+    //                     .{ .x = 0, .y = 1, .z = 5 },
+    //                     .{ .x = 8, .y = 1, .z = 3 },
+    //                     .{ .x = -8, .y = 1, .z = 8 },
+    //                     .{ .x = 5, .y = 1, .z = 8 },
+    //                 },
+    //             },
+    //             .wait = .init(1.5, .running),
+    //             .accuracy = 0.5,
+    //             .speed = 2.0,
+    //         },
+    //         .attack = .{
+    //             .range = 20.0,
+    //             .move = .{
+    //                 .speed = 7.0,
+    //                 .distance = .{ .current = 5.0, .min = 10.0, .max = 15.0, .change = .init(1.5, .finished) },
+    //             },
+    //             .weapon = .{
+    //                 .type = .single,
+    //                 .cooldown = .init(1.5, .running),
+    //                 .bullet = .{ .speed = 80.0, .damage = 25.0 },
+    //             },
+    //             .jump = .{ .force = 4.0, .cooldown = .init(5.0, .running) },
+    //             .strafe = .{ .speed = 5.0, .change = .init(1.2, .running) },
+    //         },
+    //     },
+    //     Health{ .current = 50.0, .max = 50.0 },
+    //     Position{ .y = 1.5, .z = 3 },
+    //     Scale{ .x = 1.0, .y = 2.0, .z = 1.0 },
+    //     Rotation.identity,
+    //     Model.init(Model.cube),
+    //     Collider{ .type = .{ .capsule = .{ .radius = 0.5, .half_height = 1 } }, .layer = .enemy },
+    //     Rigidbody{ .restitution = 0.0, .mass = 5.0 },
+    //     Grounded{ .grounded = false },
+    // }, &.{});
+    //
+    // _ = ecs_engine.createEntity(.{
+    //     Enemy{
+    //         .state = .patrol,
+    //         .vision = .{
+    //             .memory = .init(5.0, .finished),
+    //             .distance = 30.0,
+    //             .angle = std.math.pi / 2.0,
+    //         },
+    //         .follow = .{ .accuracy = 0.3, .distance = 6.0, .speed = 4.5 },
+    //         .patrol = .{
+    //             .path = .{
+    //                 .waypoints = .{
+    //                     .{ .x = 0, .y = 1, .z = 9 },
+    //                     .{ .x = 8, .y = 1, .z = -4 },
+    //                     .{ .x = -8, .y = 1, .z = -8 },
+    //                     .{ .x = 5, .y = 1, .z = -8 },
+    //                 },
+    //             },
+    //             .wait = .init(1.5, .running),
+    //             .accuracy = 0.5,
+    //             .speed = 2.0,
+    //         },
+    //         .attack = .{
+    //             .range = 20.0,
+    //             .move = .{
+    //                 .speed = 7.0,
+    //                 .distance = .{ .current = 5.0, .min = 4.0, .max = 15.0, .change = .init(1.5, .finished) },
+    //             },
+    //             .weapon = .{
+    //                 .type = .{ .burst = .{ .length = .init(0.5, .running), .rpm = .init(0.1, .running) } },
+    //                 .cooldown = .init(1.5, .running),
+    //                 .bullet = .{ .speed = 50.0, .damage = 10.0 },
+    //             },
+    //             .jump = .{ .force = 6.0, .cooldown = .init(4.0, .running) },
+    //             .strafe = .{ .speed = 10.0, .change = .init(1.2, .running) },
+    //         },
+    //     },
+    //     Health{ .current = 50.0, .max = 50.0 },
+    //     Position{ .y = 1.5, .z = 5, .x = 5 },
+    //     Scale{ .x = 1.0, .y = 2.0, .z = 1.0 },
+    //     Rotation.identity,
+    //     Model.init(Model.cube),
+    //     Collider{ .type = .{ .capsule = .{ .radius = 0.5, .half_height = 1 } }, .layer = .enemy },
+    //     Rigidbody{ .restitution = 0.0, .mass = 5.0 },
+    //     Grounded{ .grounded = false },
+    // }, &.{});
 }

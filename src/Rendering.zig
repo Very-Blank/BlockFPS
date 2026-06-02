@@ -13,8 +13,10 @@ const ModelInstance = @import("components/model_instance.zig").ModelInstance;
 const Position = @import("components/position.zig").Position;
 const Rotation = @import("components/rotation.zig").Rotation;
 const Scale = @import("components/scale.zig").Scale;
+const Camera = @import("components/Camera.zig");
 
 const Ecs = @import("ecs.zig").Ecs;
+const SingletonType = ecs.SingletonType;
 
 program: Program,
 model_instances: [1]Model,
@@ -48,6 +50,46 @@ pub fn init(io: Io, allocator: std.mem.Allocator) !Self {
 
 pub fn deinit(self: *const Self) void {
     self.program.destroy();
+}
+
+pub fn render(self: *const Self, ecs_engine: *Ecs, player_singleton: SingletonType) void {
+    var view: math.f32.Mat4, var projection: math.f32.Mat4 = init: {
+        if (ecs_engine.getSingletonsEntity(player_singleton)) |id| {
+            const position = ecs_engine.getEntityComponent(id, Position) catch unreachable;
+            const camera = ecs_engine.getEntityComponent(id, Camera) catch unreachable;
+
+            break :init .{
+                math.f32.Mat4.initView(
+                    position.add(Position{ .y = camera.offset }).negate(),
+                    math.f32.Quaternion.initCamRotation(-camera.rotation.yaw, -camera.rotation.pitch),
+                ),
+                camera.projection.mat,
+            };
+        }
+
+        break :init .{ .identity, .identity };
+    };
+
+    self.startRender();
+
+    glad.glUniformMatrix4fv(self.program.getUniform("view"), 1, glad.GL_FALSE, &view.fields[0][0]);
+    glad.glUniformMatrix4fv(self.program.getUniform("projection"), 1, glad.GL_FALSE, &projection.fields[0][0]);
+
+    render: {
+        var tuple_iterator = ecs_engine.getTupleIterator(.{
+            .include = ecs.Template{ .components = &.{ Position, Scale, Rotation, Model } },
+        }) orelse break :render;
+
+        self.drawModels(&tuple_iterator);
+    }
+
+    render: {
+        var tuple_iterator = ecs_engine.getTupleIterator(.{
+            .include = ecs.Template{ .components = &.{ Position, Scale, Rotation, ModelInstance } },
+        }) orelse break :render;
+
+        self.drawIntances(&tuple_iterator);
+    }
 }
 
 pub fn drawModels(self: *const Self, iterator: *Ecs.TupleIterator(.{

@@ -81,7 +81,7 @@ attack: struct {
     move: struct {
         speed: f32,
         distance: struct {
-            current: f32,
+            current: f32 = 0.0,
             max: f32,
             min: f32,
             change: Timer,

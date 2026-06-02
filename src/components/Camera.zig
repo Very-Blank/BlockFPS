@@ -2,8 +2,6 @@ const math = @import("math");
 
 const Self = @This();
 
-view: math.f32.Mat4,
-
 offset: f32,
 
 rotation: struct {
@@ -12,11 +10,12 @@ rotation: struct {
 },
 
 projection: struct {
+    mat: math.f32.Mat4,
     fov: f32,
     near: f32,
     far: f32,
 },
 
 pub inline fn updateView(self: *Self, aspect: f32) void {
-    self.view = .initPerspective(self.projection.fov, aspect, self.projection.near, self.projection.far);
+    self.projection.mat = .initPerspective(self.projection.fov, aspect, self.projection.near, self.projection.far);
 }

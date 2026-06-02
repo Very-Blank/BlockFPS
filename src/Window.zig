@@ -4,8 +4,14 @@ const glad = @import("glad");
 const math = @import("math");
 
 ptr: *glfw.GLFWwindow,
-width: i32,
-height: i32,
+logical: struct {
+    width: i32,
+    height: i32,
+},
+device: struct {
+    width: i32,
+    height: i32,
+},
 input: Input,
 
 const Self = @This();
@@ -54,8 +60,14 @@ pub fn init(name: []const u8, width: i32, height: i32) !Self {
 
             return error.WindowCreateFailed;
         },
-        .width = width,
-        .height = height,
+        .device = .{
+            .width = width,
+            .height = height,
+        },
+        .logical = .{
+            .width = width,
+            .height = height,
+        },
         .input = .init,
     };
 }
@@ -81,12 +93,14 @@ pub fn sync(self: *Self) void {
     var frame_height: i32 = 0;
     glfw.glfwGetFramebufferSize(self.ptr, &frame_width, &frame_height);
     glad.glViewport(0, 0, frame_width, frame_height);
+    self.device.width = frame_width;
+    self.device.height = frame_height;
 
     var width: i32 = 0;
     var height: i32 = 0;
     glfw.glfwGetWindowSize(self.ptr, &width, &height);
-    self.width = width;
-    self.height = height;
+    self.logical.width = width;
+    self.logical.height = height;
 }
 
 pub fn setMouseMode(self: *Self, mode: enum { normal, captured, disabled }) void {
@@ -96,7 +110,7 @@ pub fn setMouseMode(self: *Self, mode: enum { normal, captured, disabled }) void
         .normal => glfw.GLFW_CURSOR_NORMAL,
     });
 
-    switch (mode) { // BUG: GLFW doesn't hide the cursor all the time, at least in the wayland implementation.
+    switch (mode) { // BUG: GLFW doesn't hide the cursor all the time at least in the wayland implementation.
         .disabled => glfw.glfwSetCursor(self.ptr, null),
         else => {},
     }
@@ -106,11 +120,15 @@ pub fn setMouseMode(self: *Self, mode: enum { normal, captured, disabled }) void
 export fn windowSizeCallback(glfw_window: ?*glfw.GLFWwindow, width: c_int, height: c_int) void {
     const window: *Self = @ptrCast(@alignCast(glfw.glfwGetWindowUserPointer(glfw_window).?));
 
-    window.width = width;
-    window.height = height;
+    window.logical.width = width;
+    window.logical.height = height;
 }
 
-export fn framebufferSizeCallback(_: ?*glfw.GLFWwindow, width: c_int, height: c_int) void {
+export fn framebufferSizeCallback(glfw_window: ?*glfw.GLFWwindow, width: c_int, height: c_int) void {
+    const window: *Self = @ptrCast(@alignCast(glfw.glfwGetWindowUserPointer(glfw_window).?));
+
+    window.device.width = width;
+    window.device.height = height;
     glad.glViewport(0, 0, width, height);
 }
 
@@ -138,13 +156,9 @@ export fn mouseButtonCallback(glfw_window: ?*glfw.GLFWwindow, key: c_int, action
 export fn mousePositionCallback(glfw_window: ?*glfw.GLFWwindow, xpos: f64, ypos: f64) void {
     const window: *Self = @ptrCast(@alignCast(glfw.glfwGetWindowUserPointer(glfw_window).?));
 
-    var xscale: f32 = 0.0;
-    var yscale: f32 = 0.0;
-    glfw.glfwGetWindowContentScale(window.ptr, &xscale, &yscale);
-
     const mouse_position: math.f32.Vector2 = .{
-        .x = @as(f32, @floatCast(xpos)) / (@as(f32, @floatFromInt(window.width)) / (2 * xscale)) - 1,
-        .y = -(@as(f32, @floatCast(ypos)) / (@as(f32, @floatFromInt(window.height)) / (2 * yscale)) - 1),
+        .x = @floatCast(xpos),
+        .y = @floatCast(ypos),
     };
 
     window.input.mouse_state.motion = mouse_position.subtract(window.input.mouse_state.position);

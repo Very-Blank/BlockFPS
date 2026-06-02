@@ -39,7 +39,9 @@ pub const Collider = struct {
             var mask: T = @intFromEnum(self);
 
             for (layers) |layer| {
-                mask -= @intFromEnum(layer);
+                if ((mask & @intFromEnum(layer)) == @intFromEnum(layer)) {
+                    mask -= @intFromEnum(layer);
+                }
             }
 
             return @enumFromInt(mask);
