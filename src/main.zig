@@ -37,6 +37,7 @@ const Grounded = @import("components/Grounded.zig");
 
 const Ecs = @import("ecs.zig").Ecs;
 const Template = ecs.Template;
+const SingletonType = ecs.SingletonType;
 
 pub fn main(init: std.process.Init) !void {
     const io = init.io;
@@ -68,12 +69,32 @@ pub fn main(init: std.process.Init) !void {
     var gui = ImGui.init(window, ecs_engine.createSingleton(.{}));
     defer gui.deinit();
 
-    const player_singleton = ecs_engine.createSingleton(.{ .components = &.{ Position, Rigidbody, Camera } });
+    const main_camera_singleton = ecs_engine.createSingleton(.{ .components = &.{ Position, Camera } });
+    const player_singleton = ecs_engine.createSingleton(.{ .components = &.{ Position, Rigidbody, Grounded, Camera } });
+    const cam_singleton = ecs_engine.createSingleton(.{ .components = &.{ Position, Camera } });
+
+    const target = ecs_engine.createSingleton(.{ .components = &.{ Position, Collider } });
 
     var physics: Physics = .init(gpa);
     defer physics.deinit();
 
     makeArena(&ecs_engine, 50.0);
+
+    const cam_entity = ecs_engine.createEntity(.{
+        Position{ .x = -3, .y = 1.1 },
+        Camera{
+            .offset = 0.75,
+            .projection = .{
+                .mat = .initPerspective(90.0, @as(f32, @floatFromInt(window.logical.width)) / @as(f32, @floatFromInt(window.logical.height)), 1000.0, 0.001),
+                .far = 1000.0,
+                .near = 0.001,
+                .fov = 90,
+            },
+            .rotation = .{ .pitch = 0.0, .yaw = 0.0 },
+        },
+    }, &.{});
+
+    ecs_engine.setSingletonsEntity(cam_singleton, cam_entity) catch unreachable;
 
     const player_entity = ecs_engine.createEntity(.{
         Health{ .current = 50.0, .max = 50.0 },
@@ -93,7 +114,9 @@ pub fn main(init: std.process.Init) !void {
         },
     }, &.{});
 
+    ecs_engine.setSingletonsEntity(main_camera_singleton, player_entity) catch unreachable;
     ecs_engine.setSingletonsEntity(player_singleton, player_entity) catch unreachable;
+    ecs_engine.setSingletonsEntity(target, player_entity) catch unreachable;
 
     var lapsed_time: f64 = 0.0;
     var ignore_input: bool = false;
@@ -109,13 +132,19 @@ pub fn main(init: std.process.Init) !void {
             break :outer @floatCast(delta_time);
         };
 
-        physics.update(&ecs_engine, delta_time);
-        handleCollision(&physics, &ecs_engine);
+        if (gui.launcher.data.game.physics) {
+            physics.update(&ecs_engine, delta_time);
+            handleCollision(&physics, &ecs_engine);
+        }
 
         if (window.input.getKeyState(.escape) == .justPressed) {
-            ignore_input = true;
-            window.setMouseMode(.captured);
-            gui.launcher.open = true;
+            if (gui.state.isOpen()) {
+                gui.close();
+            } else {
+                ignore_input = true;
+                window.setMouseMode(.captured);
+                gui.open();
+            }
         }
 
         if (gui.state == .just_closed) {
@@ -123,6 +152,41 @@ pub fn main(init: std.process.Init) !void {
             window.setMouseMode(.disabled);
             ecs_engine.clearSingletonsEntity(gui.selection);
         }
+
+        if (!gui.state.isOpen()) {
+            switch (gui.launcher.data.game.mode) {
+                .normal => {
+                    handlePlayerInput(&ecs_engine, &window, player_singleton);
+                },
+                .flying => {
+                    handleCamInput(&ecs_engine, &window, cam_singleton, delta_time);
+                },
+            }
+        } else if (ecs_engine.getSingletonsEntity(player_singleton)) |id| {
+            const rigidbody = ecs_engine.getEntityComponent(id, Rigidbody) catch unreachable;
+            rigidbody.velocity.x = 0;
+            rigidbody.velocity.z = 0;
+        }
+
+        switch (gui.launcher.data.game.mode) {
+            .normal => {
+                if (ecs_engine.getSingletonsEntity(player_singleton)) |id| {
+                    ecs_engine.setSingletonsEntity(main_camera_singleton, id) catch unreachable;
+                }
+            },
+            .flying => {
+                if (ecs_engine.getSingletonsEntity(cam_singleton)) |id| {
+                    ecs_engine.setSingletonsEntity(main_camera_singleton, id) catch unreachable;
+                }
+            },
+        }
+
+        if (gui.launcher.data.game.ai)
+            enemies.update(&ecs_engine, target, random, delta_time);
+
+        rendering.render(&ecs_engine, main_camera_singleton);
+
+        gui.update(&ecs_engine, &window, main_camera_singleton);
 
         update_view: {
             var iterator = ecs_engine.getIterator(.{ .component = Camera }) orelse break :update_view;
@@ -133,43 +197,6 @@ pub fn main(init: std.process.Init) !void {
                 camera.updateView(aspect);
             }
         }
-
-        if (ecs_engine.getSingletonsEntity(player_singleton)) |id| {
-            const player: Player = .{
-                .position = ecs_engine.getEntityComponent(id, Position) catch unreachable,
-                .rigidbody = ecs_engine.getEntityComponent(id, Rigidbody) catch unreachable,
-                .grounded = ecs_engine.getEntityComponent(id, Grounded) catch unreachable,
-                .camera = ecs_engine.getEntityComponent(id, Camera) catch unreachable,
-            };
-
-            if (!gui.state.isOpen()) {
-                handlePlayerInput(&window, player, delta_time);
-
-                if (window.input.mouse_state.left_click == .justPressed) {
-                    const forward = Vector3.forward
-                        .rotateAroundAxis(.x, player.camera.rotation.pitch)
-                        .rotateAroundAxis(.y, player.camera.rotation.yaw)
-                        .normalize()
-                        .negate();
-
-                    _ = ecs_engine.createEntity(.{
-                        Bullet{ .damage = 10, .duration = 3.0, .max_deflection_angle = 0.85 },
-                        player.position.add(forward).add(Position{ .y = player.camera.offset }),
-                        Scale{ .x = 0.1, .y = 0.1, .z = 0.1 },
-                        Rotation.identity,
-                        ModelInstance.cube,
-                        Collider{ .type = .{ .sphere = .{ .radius = 0.5 } } },
-                        Rigidbody{ .velocity = forward.scale(50.0), .gravity = 0.0, .restitution = 0.0, .mass = 0.1 },
-                    }, &.{});
-                }
-            }
-        }
-
-        enemies.update(&ecs_engine, player_singleton, random, delta_time);
-
-        rendering.render(&ecs_engine, player_singleton);
-
-        gui.update(&ecs_engine, &window, player_singleton);
 
         destroy: {
             var iterator = ecs_engine.getIterator(.{
@@ -257,37 +284,102 @@ pub fn handleCollision(physics: *Physics, ecs_engine: *Ecs) void {
     physics.clear();
 }
 
-const Player = struct { position: *Position, rigidbody: *Rigidbody, grounded: *Grounded, camera: *Camera };
+pub fn handleCamInput(ecs_engine: *Ecs, window: *Window, cam_singleton: SingletonType, delta_time: f32) void {
+    if (ecs_engine.getSingletonsEntity(cam_singleton)) |id| {
+        const position = ecs_engine.getEntityComponent(id, Position) catch unreachable;
+        const camera = ecs_engine.getEntityComponent(id, Camera) catch unreachable;
 
-pub fn handlePlayerInput(window: *Window, player: Player, _: f32) void {
-    player.camera.rotation.yaw -= window.input.mouse_state.motion.x / 1000.0;
-    player.camera.rotation.pitch -= window.input.mouse_state.motion.y / 1000.0;
+        camera.rotation.yaw -= window.input.mouse_state.motion.x / 1000.0;
+        camera.rotation.pitch -= window.input.mouse_state.motion.y / 1000.0;
 
-    var movement_input: Vector3 = .zero;
-    if (window.input.getKeyState(.w).isDown()) {
-        movement_input.z -= 1.0;
-    }
-    if (window.input.getKeyState(.s).isDown()) {
-        movement_input.z += 1.0;
-    }
-    if (window.input.getKeyState(.d).isDown()) {
-        movement_input.x += 1.0;
-    }
-    if (window.input.getKeyState(.a).isDown()) {
-        movement_input.x -= 1.0;
-    }
+        var movement_input: Vector3 = .zero;
+        if (window.input.getKeyState(.w).isDown()) {
+            movement_input.z -= 1.0;
+        }
+        if (window.input.getKeyState(.s).isDown()) {
+            movement_input.z += 1.0;
+        }
+        if (window.input.getKeyState(.d).isDown()) {
+            movement_input.x += 1.0;
+        }
+        if (window.input.getKeyState(.a).isDown()) {
+            movement_input.x -= 1.0;
+        }
 
-    if (player.grounded.grounded and window.input.getKeyState(.space) == .justPressed) {
-        player.rigidbody.velocity.y += 5;
-    }
+        if (window.input.getKeyState(.space).isDown()) {
+            movement_input.y += 1.0;
+        }
 
-    if (movement_input.length() > 0.0) {
-        movement_input = movement_input.normalize().rotateAroundAxis(.y, player.camera.rotation.yaw).scale(if (window.input.getKeyState(.left_shift).isDown()) 10 else 4);
-        player.rigidbody.velocity.x = movement_input.x;
-        player.rigidbody.velocity.z = movement_input.z;
-    } else {
-        player.rigidbody.velocity.x = 0.0;
-        player.rigidbody.velocity.z = 0.0;
+        if (window.input.getKeyState(.left_control).isDown()) {
+            movement_input.y -= 1.0;
+        }
+
+        if (movement_input.length() > 0.0) {
+            position.* = position.add(
+                movement_input
+                    .normalize()
+                    .rotateAroundAxis(.y, camera.rotation.yaw)
+                    .scale(if (window.input.getKeyState(.left_shift).isDown()) 25 else 10)
+                    .scale(delta_time),
+            );
+        }
+    }
+}
+
+pub fn handlePlayerInput(ecs_engine: *Ecs, window: *Window, player_singleton: SingletonType) void {
+    if (ecs_engine.getSingletonsEntity(player_singleton)) |id| {
+        const position = ecs_engine.getEntityComponent(id, Position) catch unreachable;
+        const rigidbody = ecs_engine.getEntityComponent(id, Rigidbody) catch unreachable;
+        const grounded = ecs_engine.getEntityComponent(id, Grounded) catch unreachable;
+        const camera = ecs_engine.getEntityComponent(id, Camera) catch unreachable;
+
+        camera.rotation.yaw -= window.input.mouse_state.motion.x / 1000.0;
+        camera.rotation.pitch -= window.input.mouse_state.motion.y / 1000.0;
+
+        var movement_input: Vector3 = .zero;
+        if (window.input.getKeyState(.w).isDown()) {
+            movement_input.z -= 1.0;
+        }
+        if (window.input.getKeyState(.s).isDown()) {
+            movement_input.z += 1.0;
+        }
+        if (window.input.getKeyState(.d).isDown()) {
+            movement_input.x += 1.0;
+        }
+        if (window.input.getKeyState(.a).isDown()) {
+            movement_input.x -= 1.0;
+        }
+
+        if (grounded.grounded and window.input.getKeyState(.space) == .justPressed) {
+            rigidbody.velocity.y += 5;
+        }
+
+        if (movement_input.length() > 0.0) {
+            movement_input = movement_input.normalize().rotateAroundAxis(.y, camera.rotation.yaw).scale(if (window.input.getKeyState(.left_shift).isDown()) 10 else 4);
+            rigidbody.velocity.x = movement_input.x;
+            rigidbody.velocity.z = movement_input.z;
+        } else {
+            rigidbody.velocity.x = 0.0;
+            rigidbody.velocity.z = 0.0;
+        }
+
+        if (window.input.mouse_state.left_click == .justPressed) {
+            const forward = Vector3.forward
+                .rotateAroundAxis(.x, camera.rotation.pitch)
+                .rotateAroundAxis(.y, camera.rotation.yaw)
+                .normalize()
+                .negate();
+
+            _ = ecs_engine.createEntity(.{
+                Bullet{ .damage = 10, .duration = 3.0, .max_deflection_angle = 0.85 },
+                position.add(forward).add(Position{ .y = camera.offset }),
+                Scale{ .x = 0.1, .y = 0.1, .z = 0.1 },
+                Rotation.identity,
+                ModelInstance.cube,
+                Collider{ .type = .{ .sphere = .{ .radius = 0.5 } } },
+                Rigidbody{ .velocity = forward.scale(50.0), .gravity = 0.0, .restitution = 0.0, .mass = 0.1 },
+            }, &.{});
+        }
     }
 }
 

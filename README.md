@@ -9,5 +9,5 @@ List of things to ignore.
 
 # FIXME:
 
-- [ ] Pressing ecs again closes debug windows!
-- [ ] Reset player velocity when in debug windows.
+- [x] Pressing ecs again closes debug windows!
+- [x] Reset player velocity when in debug windows.

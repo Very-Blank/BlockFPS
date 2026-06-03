@@ -73,7 +73,14 @@ pub fn GuiWindow(comptime T: type) type {
 }
 
 pub const LauncherData: type = struct {
-    inspector_open: bool = false,
+    tools: struct {
+        inspector: bool = false,
+    },
+    game: struct {
+        mode: enum(u32) { flying = 0, normal = 1 } = .normal,
+        physics: bool = true,
+        ai: bool = true,
+    },
 };
 
 pub const InspectorData: type = struct {
@@ -103,8 +110,8 @@ pub const State = enum {
         return (state == .just_opened or state == .open);
     }
 
-    pub inline fn update(self: *State, open: bool) void {
-        if (open) {
+    pub inline fn update(self: *State, is_open: bool) void {
+        if (is_open) {
             self.* = switch (self.*) {
                 .just_opened, .open => .open,
                 else => .just_opened,
@@ -127,16 +134,67 @@ pub const Style = enum {
     classic,
 };
 
+const width = 150.0;
+
 io: *imgui.struct_ImGuiIO_t,
 context: *imgui.ImGuiContext,
 launcher: GuiWindow(LauncherData) = .{
     .name = "Launcher",
-    .data = .{},
+    .data = .{
+        .tools = .{},
+        .game = .{},
+    },
     .draw_fn = struct {
         pub fn draw(data: *LauncherData) void {
             imgui.ImGui_Text("Tools");
             imgui.ImGui_Indent();
-            data.inspector_open = imgui.ImGui_Button("Inspector");
+
+            data.tools.inspector = imgui.ImGui_Button("Inspector");
+
+            imgui.ImGui_Unindent();
+
+            imgui.ImGui_Separator();
+
+            imgui.ImGui_Text("Game");
+            imgui.ImGui_Indent();
+
+            _ = imgui.ImGui_Checkbox("Physics", &data.game.physics);
+            imgui.ImGui_SameLine();
+            _ = imgui.ImGui_Checkbox("AI", &data.game.ai);
+
+            const Mode: type = @FieldType(@FieldType(LauncherData, "game"), "mode");
+
+            const mode_names: []const u8 = comptime init: {
+                var names: []const u8 = "";
+
+                for (@typeInfo(Mode).@"enum".fields) |field| {
+                    names = names ++ field.name ++ .{0};
+                }
+
+                names = names ++ .{0};
+
+                break :init names;
+            };
+
+            var mode_layer: i32 = 0;
+
+            inline for (@typeInfo(Mode).@"enum".fields, 0..) |field, i| {
+                if (data.game.mode == @as(Mode, @enumFromInt(field.value))) {
+                    mode_layer = i;
+                }
+            }
+
+            imgui.ImGui_PushItemWidth(width);
+            imgui.ImGui_SameLine();
+            if (imgui.ImGui_ComboEx("Mode", &mode_layer, mode_names.ptr, -1)) {
+                inline for (@typeInfo(Mode).@"enum".fields, 0..) |field, i| {
+                    if (mode_layer == i) {
+                        data.game.mode = @enumFromInt(field.value);
+                    }
+                }
+            }
+            imgui.ImGui_PopItemWidth();
+
             imgui.ImGui_Unindent();
         }
     }.draw,
@@ -147,11 +205,15 @@ tools: struct {
         .data = .{},
         .draw_fn = struct {
             pub fn draw(data: *InspectorData) void {
+                imgui.ImGui_PushItemWidth(width);
+
                 if (data.position.has and imgui.ImGui_CollapsingHeader("Position", 0)) {
                     imgui.ImGui_Indent();
+
                     _ = imgui.ImGui_DragFloatEx("X##pos", @ptrCast(&data.position.value.x), 0.01, -1000.0, 1000.0, "%.3f", 0);
                     _ = imgui.ImGui_DragFloatEx("Y##pos", @ptrCast(&data.position.value.y), 0.01, -1000.0, 1000.0, "%.3f", 0);
                     _ = imgui.ImGui_DragFloatEx("Z##pos", @ptrCast(&data.position.value.z), 0.01, -1000.0, 1000.0, "%.3f", 0);
+
                     imgui.ImGui_Unindent();
                 }
 
@@ -171,6 +233,8 @@ tools: struct {
                     _ = imgui.ImGui_DragFloatEx("Z##scale", @ptrCast(&data.scale.value.z), 0.01, 0.0, 100.0, "%.3f", 0);
                     imgui.ImGui_Unindent();
                 }
+
+                imgui.ImGui_PopItemWidth();
 
                 if (data.collider.has and imgui.ImGui_CollapsingHeader("Collider", 0)) {
                     const collider = &data.collider.value;
@@ -216,9 +280,6 @@ tools: struct {
                     inline for (0..mask_bits) |i| {
                         const column = i % columns;
 
-                        const string = comptime itoa(i);
-                        std.debug.print("{s}\n", .{string});
-
                         if (column == 0) {
                             imgui.ImGui_Text(comptime rightPad(itoa(i) ++ "-" ++ itoa(i + columns - 1), 5));
                             imgui.ImGui_SameLineEx(0, 0);
@@ -254,6 +315,9 @@ tools: struct {
                     }
 
                     imgui.ImGui_Indent();
+
+                    imgui.ImGui_PushItemWidth(width);
+
                     switch (collider.type) {
                         .sphere => |*sphere| _ = imgui.ImGui_DragFloat("Radius##sph", @ptrCast(&sphere.radius)),
                         .capsule => |*capsule| {
@@ -267,12 +331,16 @@ tools: struct {
                         },
                     }
 
+                    imgui.ImGui_PopItemWidth();
+
                     imgui.ImGui_Unindent();
                     imgui.ImGui_Unindent();
                 }
 
                 if (data.rigidbody.has and imgui.ImGui_CollapsingHeader("Rigidbody", 0)) {
                     imgui.ImGui_Indent();
+
+                    imgui.ImGui_PushItemWidth(width);
 
                     if (imgui.ImGui_CollapsingHeader("Velocity", 0)) {
                         imgui.ImGui_Indent();
@@ -281,10 +349,14 @@ tools: struct {
                         _ = imgui.ImGui_DragFloatEx("Z##rb", @ptrCast(&data.rigidbody.value.velocity.z), 0.01, -1000.0, 1000.0, "%.3f", 0);
                         imgui.ImGui_Unindent();
                     }
+
                     imgui.ImGui_Separator();
+
                     _ = imgui.ImGui_DragFloat("Gravity##rb", @ptrCast(&data.rigidbody.value.gravity));
                     _ = imgui.ImGui_DragFloat("Mass##rb", @ptrCast(&data.rigidbody.value.mass));
                     _ = imgui.ImGui_DragFloat("Restitution##rb", @ptrCast(&data.rigidbody.value.restitution));
+
+                    imgui.ImGui_PopItemWidth();
 
                     imgui.ImGui_Unindent();
                 }
@@ -298,14 +370,21 @@ tools: struct {
                 if (data.health.has and imgui.ImGui_CollapsingHeader("Health", 0)) {
                     imgui.ImGui_Indent();
                     const hp = &data.health.value;
+
+                    imgui.ImGui_PushItemWidth(width);
+
                     _ = imgui.ImGui_DragFloat("Current##hp", @ptrCast(&hp.current));
                     _ = imgui.ImGui_DragFloat("Max##hp", @ptrCast(&hp.max));
+
+                    imgui.ImGui_PopItemWidth();
+
                     imgui.ImGui_Unindent();
                 }
             }
         }.draw,
     },
 },
+open_states: [1]bool = .{false} ** 1,
 selection: SingletonType,
 state: State = .closed,
 // TODO: Add position for spawning stuff.
@@ -329,14 +408,35 @@ pub fn init(window: Window, selection: SingletonType) Self {
     return new_imgui;
 }
 
+pub fn open(self: *Self) void {
+    self.launcher.open = true;
+
+    inline for (@typeInfo(@FieldType(Self, "tools")).@"struct".fields, 0..) |field, i| {
+        @field(self.tools, field.name).open = self.open_states[i];
+    }
+
+    self.state.update(true);
+}
+
+pub fn close(self: *Self) void {
+    self.launcher.open = false;
+
+    inline for (@typeInfo(@FieldType(Self, "tools")).@"struct".fields, 0..) |field, i| {
+        self.open_states[i] = @field(self.tools, field.name).open;
+        @field(self.tools, field.name).open = false;
+    }
+
+    self.state.update(false);
+}
+
 // Returns true if any of the debug windows are open.
 pub fn update(
     self: *Self,
     ecs_engine: *Ecs,
     window: *Window,
-    player_singleton: SingletonType,
+    main_camera_singleton: SingletonType,
 ) void {
-    if (self.launcher.data.inspector_open) {
+    if (self.launcher.data.tools.inspector) {
         self.tools.inspector.open = true;
     }
 
@@ -351,7 +451,7 @@ pub fn update(
     };
 
     if (!self.io.WantCaptureMouse and window.input.mouse_state.left_click == .justPressed) {
-        if (ecs_engine.getSingletonsEntity(player_singleton)) |id| {
+        if (ecs_engine.getSingletonsEntity(main_camera_singleton)) |id| {
             const camera = ecs_engine.getEntityComponent(id, Camera) catch unreachable;
             const position = ecs_engine.getEntityComponent(id, Position) catch unreachable;
 
@@ -433,7 +533,7 @@ pub fn update(
     render();
     endFrame();
 
-    const open: bool = init: {
+    const is_open: bool = init: {
         inline for (@typeInfo(@FieldType(Self, "tools")).@"struct".fields) |field| {
             if (@field(self.tools, field.name).open) break :init true;
         }
@@ -441,7 +541,7 @@ pub fn update(
         break :init self.launcher.open;
     };
 
-    self.state.update(open);
+    self.state.update(is_open);
 }
 
 pub inline fn deinit(self: *Self) void {
