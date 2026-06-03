@@ -1,1 +1,1 @@
-grounded: bool
+grounded: bool = false,
