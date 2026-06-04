@@ -13,8 +13,7 @@ const Mat4 = math.f32.Mat4;
 
 const Window = @import("Window.zig");
 
-const Model = @import("components/Model.zig");
-const ModelInstance = @import("components/model_instance.zig").ModelInstance;
+const Model = @import("components/model.zig").Model;
 const Position = @import("components/position.zig").Position;
 const Rotation = @import("components/rotation.zig").Rotation;
 const Scale = @import("components/scale.zig").Scale;
@@ -27,6 +26,8 @@ const Grounded = @import("components/Grounded.zig");
 const Health = @import("components/Health.zig");
 const Bullet = @import("components/Bullet.zig");
 const Enemy = @import("components/Enemy.zig");
+
+const width = 150.0;
 
 pub fn itoa(comptime value: anytype) [:0]const u8 {
     comptime var string: [:0]const u8 = "";
@@ -53,6 +54,273 @@ pub fn rightPad(comptime value: [:0]const u8, comptime len: usize) [:0]const u8 
     return string;
 }
 
+inline fn enumSelector(comptime T: type, value: *T, name: [:0]const u8) void {
+    switch (@typeInfo(T)) {
+        .@"enum" => {},
+        else => @compileError("Unexpected type: " ++ @typeName(T) ++ "."),
+    }
+
+    const names: []const u8 = comptime init: {
+        var names: []const u8 = "";
+
+        for (@typeInfo(T).@"enum".fields) |field| {
+            names = names ++ field.name ++ .{0};
+        }
+
+        names = names ++ .{0};
+
+        break :init names;
+    };
+
+    var current: i32 = 0;
+
+    inline for (@typeInfo(T).@"enum".fields, 0..) |field, i| {
+        if (value.* == @as(T, @enumFromInt(field.value))) {
+            current = i;
+        }
+    }
+
+    imgui.ImGui_PushItemWidth(width);
+
+    if (imgui.ImGui_ComboEx(name, &current, names.ptr, -1)) {
+        inline for (@typeInfo(T).@"enum".fields, 0..) |field, i| {
+            if (current == i) {
+                value.* = @enumFromInt(field.value);
+            }
+        }
+    }
+
+    imgui.ImGui_PopItemWidth();
+}
+
+io: *imgui.struct_ImGuiIO_t,
+context: *imgui.ImGuiContext,
+launcher: GuiWindow(LauncherData) = .{
+    .name = "Launcher",
+    .data = .{
+        .tools = .{},
+        .game = .{},
+    },
+    .draw_fn = struct {
+        pub fn draw(data: *LauncherData) void {
+            {
+                imgui.ImGui_Text("Tools");
+                imgui.ImGui_Indent();
+                defer imgui.ImGui_Unindent();
+
+                data.tools.inspector = imgui.ImGui_Button("Inspector");
+            }
+
+            imgui.ImGui_Separator();
+
+            {
+                imgui.ImGui_Text("Game");
+                imgui.ImGui_Indent();
+                defer imgui.ImGui_Unindent();
+
+                _ = imgui.ImGui_Checkbox("Freeze", &data.game.freeze);
+
+                const Mode: type = @FieldType(@FieldType(LauncherData, "game"), "mode");
+
+                imgui.ImGui_PushItemWidth(width);
+                defer imgui.ImGui_PopItemWidth();
+
+                imgui.ImGui_SameLine();
+                enumSelector(Mode, &data.game.mode, "Mode");
+            }
+        }
+    }.draw,
+},
+tools: struct {
+    inspector: GuiWindow(InspectorData) = .{
+        .name = "Inspector",
+        .data = .{},
+        .draw_fn = struct {
+            pub fn draw(data: *InspectorData) void {
+                {
+                    imgui.ImGui_PushItemWidth(width);
+                    defer imgui.ImGui_PopItemWidth();
+
+                    if (data.position.has and imgui.ImGui_CollapsingHeader("Position", 0)) {
+                        const position = &data.position.value;
+
+                        imgui.ImGui_Indent();
+                        defer imgui.ImGui_Unindent();
+
+                        _ = imgui.ImGui_DragFloatEx("X##pos", @ptrCast(&position.x), 0.01, -1000.0, 1000.0, "%.3f", 0);
+                        _ = imgui.ImGui_DragFloatEx("Y##pos", @ptrCast(&position.y), 0.01, -1000.0, 1000.0, "%.3f", 0);
+                        _ = imgui.ImGui_DragFloatEx("Z##pos", @ptrCast(&position.z), 0.01, -1000.0, 1000.0, "%.3f", 0);
+                    }
+
+                    if (data.rotation.has and imgui.ImGui_CollapsingHeader("Rotation", 0)) {
+                        const rotation = &data.rotation.value;
+
+                        imgui.ImGui_Indent();
+                        defer imgui.ImGui_Unindent();
+
+                        _ = imgui.ImGui_DragFloatEx("X##rot", @ptrCast(&rotation.fields[0]), 0.005, -1.0, 1.0, "%.3f", 0);
+                        _ = imgui.ImGui_DragFloatEx("Y##rot", @ptrCast(&rotation.fields[1]), 0.005, -1.0, 1.0, "%.3f", 0);
+                        _ = imgui.ImGui_DragFloatEx("Z##rot", @ptrCast(&rotation.fields[2]), 0.005, -1.0, 1.0, "%.3f", 0);
+                        _ = imgui.ImGui_DragFloatEx("W##rot", @ptrCast(&rotation.fields[3]), 0.005, -1.0, 1.0, "%.3f", 0);
+                    }
+
+                    if (data.scale.has and imgui.ImGui_CollapsingHeader("Scale", 0)) {
+                        const scale = &data.scale.value;
+
+                        imgui.ImGui_Indent();
+                        defer imgui.ImGui_Unindent();
+
+                        _ = imgui.ImGui_DragFloatEx("X##scale", @ptrCast(&scale.x), 0.01, 0.0, 100.0, "%.3f", 0);
+                        _ = imgui.ImGui_DragFloatEx("Y##scale", @ptrCast(&scale.y), 0.01, 0.0, 100.0, "%.3f", 0);
+                        _ = imgui.ImGui_DragFloatEx("Z##scale", @ptrCast(&scale.z), 0.01, 0.0, 100.0, "%.3f", 0);
+                    }
+                }
+
+                if (data.model.has and imgui.ImGui_CollapsingHeader("Model", 0)) {
+                    imgui.ImGui_Indent();
+                    defer imgui.ImGui_Unindent();
+
+                    enumSelector(Model, &data.model.value, "Model##enum");
+                }
+
+                if (data.collider.has and imgui.ImGui_CollapsingHeader("Collider", 0)) {
+                    const collider = &data.collider.value;
+
+                    imgui.ImGui_Indent();
+                    defer imgui.ImGui_Unindent();
+
+                    enumSelector(Layer, &collider.layer, "Layer##col");
+
+                    imgui.ImGui_Separator();
+
+                    {
+                        imgui.ImGui_Text("Mask");
+
+                        imgui.ImGui_Indent();
+                        defer imgui.ImGui_Unindent();
+
+                        var mask_int: i32 = @intFromEnum(collider.mask);
+                        const mask_bits = @typeInfo(@typeInfo(Mask).@"enum".tag_type).int.bits;
+                        const columns = 8;
+
+                        inline for (0..mask_bits) |i| {
+                            const column = i % columns;
+
+                            if (column == 0) {
+                                imgui.ImGui_Text(comptime rightPad(itoa(i) ++ "-" ++ itoa(i + columns - 1), 5));
+                                imgui.ImGui_SameLineEx(0, 0);
+                            } else {
+                                imgui.ImGui_SameLineEx(0, 0);
+                            }
+
+                            const bit: i32 = @as(i32, 1) << i;
+                            var checked = (mask_int & bit) != 0;
+
+                            if (imgui.ImGui_Checkbox("##mask" ++ (comptime itoa(i)), &checked)) {
+                                if (checked) mask_int |= bit else mask_int &= ~bit;
+                                collider.mask = @enumFromInt(mask_int);
+                            }
+                        }
+                    }
+
+                    imgui.ImGui_Separator();
+
+                    {
+                        imgui.ImGui_Indent();
+                        defer imgui.ImGui_Unindent();
+
+                        imgui.ImGui_PushItemWidth(width);
+                        defer imgui.ImGui_PopItemWidth();
+
+                        const shape_names: []const u8 = "Sphere" ++ .{0} ++ "Capsule" ++ .{0} ++ "Box" ++ .{ 0, 0 };
+                        var current_shape: i32 = switch (collider.type) {
+                            .sphere => 0,
+                            .capsule => 1,
+                            .box => 2,
+                        };
+
+                        if (imgui.ImGui_ComboEx("Shape##col", &current_shape, shape_names.ptr, -1)) {
+                            collider.type = switch (current_shape) {
+                                0 => .{ .sphere = .{ .radius = 1.0 } },
+                                1 => .{ .capsule = .{ .radius = 0.5, .half_height = 1.0 } },
+                                else => .{ .box = .{ .x = 1.0, .y = 1.0, .z = 1.0 } },
+                            };
+                        }
+
+                        switch (collider.type) {
+                            .sphere => |*sphere| _ = imgui.ImGui_DragFloat("Radius##sph", @ptrCast(&sphere.radius)),
+                            .capsule => |*capsule| {
+                                _ = imgui.ImGui_DragFloat("Radius##cap", @ptrCast(&capsule.radius));
+                                _ = imgui.ImGui_DragFloat("Height##cap", @ptrCast(&capsule.half_height));
+                            },
+                            .box => |*box| {
+                                _ = imgui.ImGui_DragFloat("Width##box", @ptrCast(&box.x));
+                                _ = imgui.ImGui_DragFloat("Height##box", @ptrCast(&box.y));
+                                _ = imgui.ImGui_DragFloat("Depth##box", @ptrCast(&box.z));
+                            },
+                        }
+                    }
+                }
+
+                if (data.rigidbody.has and imgui.ImGui_CollapsingHeader("Rigidbody", 0)) {
+                    const rigidbody = &data.rigidbody.value;
+
+                    imgui.ImGui_Indent();
+                    defer imgui.ImGui_Unindent();
+
+                    imgui.ImGui_PushItemWidth(width);
+                    defer imgui.ImGui_PopItemWidth();
+
+                    if (imgui.ImGui_CollapsingHeader("Velocity", 0)) {
+                        imgui.ImGui_Indent();
+                        defer imgui.ImGui_Unindent();
+
+                        _ = imgui.ImGui_DragFloatEx("X##rb", @ptrCast(&rigidbody.velocity.x), 0.01, -1000.0, 1000.0, "%.3f", 0);
+                        _ = imgui.ImGui_DragFloatEx("Y##rb", @ptrCast(&rigidbody.velocity.y), 0.01, -1000.0, 1000.0, "%.3f", 0);
+                        _ = imgui.ImGui_DragFloatEx("Z##rb", @ptrCast(&rigidbody.velocity.z), 0.01, -1000.0, 1000.0, "%.3f", 0);
+                    }
+
+                    imgui.ImGui_Separator();
+
+                    _ = imgui.ImGui_DragFloat("Gravity##rb", @ptrCast(&rigidbody.gravity));
+                    _ = imgui.ImGui_DragFloat("Mass##rb", @ptrCast(&rigidbody.mass));
+                    _ = imgui.ImGui_DragFloat("Restitution##rb", @ptrCast(&rigidbody.restitution));
+                }
+
+                if (data.grounded.has and imgui.ImGui_CollapsingHeader("Grounded", 0)) {
+                    const grounded = &data.grounded.value;
+                    imgui.ImGui_Indent();
+                    defer imgui.ImGui_Unindent();
+
+                    _ = imgui.ImGui_Checkbox("Grounded##gnd", &grounded.grounded);
+                }
+
+                if (data.health.has and imgui.ImGui_CollapsingHeader("Health", 0)) {
+                    const hp = &data.health.value;
+
+                    imgui.ImGui_Indent();
+                    defer imgui.ImGui_Unindent();
+
+                    imgui.ImGui_PushItemWidth(width);
+                    defer imgui.ImGui_PopItemWidth();
+
+                    _ = imgui.ImGui_DragFloat("Current##hp", @ptrCast(&hp.current));
+                    _ = imgui.ImGui_DragFloat("Max##hp", @ptrCast(&hp.max));
+                }
+            }
+        }.draw,
+    },
+},
+open_states: [1]bool = .{false} ** 1,
+selection: struct {
+    singleton: SingletonType,
+    position: Vector3,
+},
+state: State = .closed,
+// TODO: Add position for spawning stuff.
+
+const Self = @This();
+
 pub fn GuiWindow(comptime T: type) type {
     return struct {
         name: [:0]const u8,
@@ -77,9 +345,8 @@ pub const LauncherData: type = struct {
         inspector: bool = false,
     },
     game: struct {
-        mode: enum(u32) { flying = 0, normal = 1 } = .normal,
-        physics: bool = true,
-        ai: bool = true,
+        freeze: bool = false,
+        mode: enum(u32) { normal = 0, cam = 1 } = .normal,
     },
 };
 
@@ -94,6 +361,7 @@ pub const InspectorData: type = struct {
     position: Value(Position) = .{ .value = .zero },
     rotation: Value(Rotation) = .{ .value = .identity },
     scale: Value(Scale) = .{ .value = .zero },
+    model: Value(Model) = .{ .value = .cube },
     collider: Value(Collider) = .{ .value = Collider{ .type = .{ .sphere = .{ .radius = 0.0 } } } },
     rigidbody: Value(Rigidbody) = .{ .value = .{} },
     grounded: Value(Grounded) = .{ .value = .{} },
@@ -134,268 +402,14 @@ pub const Style = enum {
     classic,
 };
 
-const width = 150.0;
-
-io: *imgui.struct_ImGuiIO_t,
-context: *imgui.ImGuiContext,
-launcher: GuiWindow(LauncherData) = .{
-    .name = "Launcher",
-    .data = .{
-        .tools = .{},
-        .game = .{},
-    },
-    .draw_fn = struct {
-        pub fn draw(data: *LauncherData) void {
-            imgui.ImGui_Text("Tools");
-            imgui.ImGui_Indent();
-
-            data.tools.inspector = imgui.ImGui_Button("Inspector");
-
-            imgui.ImGui_Unindent();
-
-            imgui.ImGui_Separator();
-
-            imgui.ImGui_Text("Game");
-            imgui.ImGui_Indent();
-
-            _ = imgui.ImGui_Checkbox("Physics", &data.game.physics);
-            imgui.ImGui_SameLine();
-            _ = imgui.ImGui_Checkbox("AI", &data.game.ai);
-
-            const Mode: type = @FieldType(@FieldType(LauncherData, "game"), "mode");
-
-            const mode_names: []const u8 = comptime init: {
-                var names: []const u8 = "";
-
-                for (@typeInfo(Mode).@"enum".fields) |field| {
-                    names = names ++ field.name ++ .{0};
-                }
-
-                names = names ++ .{0};
-
-                break :init names;
-            };
-
-            var mode_layer: i32 = 0;
-
-            inline for (@typeInfo(Mode).@"enum".fields, 0..) |field, i| {
-                if (data.game.mode == @as(Mode, @enumFromInt(field.value))) {
-                    mode_layer = i;
-                }
-            }
-
-            imgui.ImGui_PushItemWidth(width);
-            imgui.ImGui_SameLine();
-            if (imgui.ImGui_ComboEx("Mode", &mode_layer, mode_names.ptr, -1)) {
-                inline for (@typeInfo(Mode).@"enum".fields, 0..) |field, i| {
-                    if (mode_layer == i) {
-                        data.game.mode = @enumFromInt(field.value);
-                    }
-                }
-            }
-            imgui.ImGui_PopItemWidth();
-
-            imgui.ImGui_Unindent();
-        }
-    }.draw,
-},
-tools: struct {
-    inspector: GuiWindow(InspectorData) = .{
-        .name = "Inspector",
-        .data = .{},
-        .draw_fn = struct {
-            pub fn draw(data: *InspectorData) void {
-                imgui.ImGui_PushItemWidth(width);
-
-                if (data.position.has and imgui.ImGui_CollapsingHeader("Position", 0)) {
-                    imgui.ImGui_Indent();
-
-                    _ = imgui.ImGui_DragFloatEx("X##pos", @ptrCast(&data.position.value.x), 0.01, -1000.0, 1000.0, "%.3f", 0);
-                    _ = imgui.ImGui_DragFloatEx("Y##pos", @ptrCast(&data.position.value.y), 0.01, -1000.0, 1000.0, "%.3f", 0);
-                    _ = imgui.ImGui_DragFloatEx("Z##pos", @ptrCast(&data.position.value.z), 0.01, -1000.0, 1000.0, "%.3f", 0);
-
-                    imgui.ImGui_Unindent();
-                }
-
-                if (data.rotation.has and imgui.ImGui_CollapsingHeader("Rotation", 0)) {
-                    imgui.ImGui_Indent();
-                    _ = imgui.ImGui_DragFloatEx("X##rot", @ptrCast(&data.rotation.value.fields[0]), 0.005, -1.0, 1.0, "%.3f", 0);
-                    _ = imgui.ImGui_DragFloatEx("Y##rot", @ptrCast(&data.rotation.value.fields[1]), 0.005, -1.0, 1.0, "%.3f", 0);
-                    _ = imgui.ImGui_DragFloatEx("Z##rot", @ptrCast(&data.rotation.value.fields[2]), 0.005, -1.0, 1.0, "%.3f", 0);
-                    _ = imgui.ImGui_DragFloatEx("W##rot", @ptrCast(&data.rotation.value.fields[3]), 0.005, -1.0, 1.0, "%.3f", 0);
-                    imgui.ImGui_Unindent();
-                }
-
-                if (data.scale.has and imgui.ImGui_CollapsingHeader("Scale", 0)) {
-                    imgui.ImGui_Indent();
-                    _ = imgui.ImGui_DragFloatEx("X##scale", @ptrCast(&data.scale.value.x), 0.01, 0.0, 100.0, "%.3f", 0);
-                    _ = imgui.ImGui_DragFloatEx("Y##scale", @ptrCast(&data.scale.value.y), 0.01, 0.0, 100.0, "%.3f", 0);
-                    _ = imgui.ImGui_DragFloatEx("Z##scale", @ptrCast(&data.scale.value.z), 0.01, 0.0, 100.0, "%.3f", 0);
-                    imgui.ImGui_Unindent();
-                }
-
-                imgui.ImGui_PopItemWidth();
-
-                if (data.collider.has and imgui.ImGui_CollapsingHeader("Collider", 0)) {
-                    const collider = &data.collider.value;
-                    imgui.ImGui_Indent();
-
-                    const layer_names: []const u8 = comptime init: {
-                        var names: []const u8 = "";
-
-                        for (@typeInfo(Layer).@"enum".fields) |field| {
-                            names = names ++ field.name ++ .{0};
-                        }
-
-                        names = names ++ .{0};
-
-                        break :init names;
-                    };
-
-                    var current_layer: i32 = 0;
-
-                    inline for (@typeInfo(Layer).@"enum".fields, 0..) |field, i| {
-                        if (collider.layer == @as(Layer, @enumFromInt(field.value))) {
-                            current_layer = i;
-                        }
-                    }
-
-                    if (imgui.ImGui_ComboEx("Layer##col", &current_layer, layer_names.ptr, -1)) {
-                        inline for (@typeInfo(Layer).@"enum".fields, 0..) |field, i| {
-                            if (current_layer == i) {
-                                collider.layer = @enumFromInt(field.value);
-                            }
-                        }
-                    }
-
-                    imgui.ImGui_Separator();
-
-                    imgui.ImGui_Text("Mask");
-
-                    imgui.ImGui_Indent();
-                    var mask_int: i32 = @intFromEnum(collider.mask);
-                    const mask_bits = @typeInfo(@typeInfo(Mask).@"enum".tag_type).int.bits;
-                    const columns = 8;
-
-                    inline for (0..mask_bits) |i| {
-                        const column = i % columns;
-
-                        if (column == 0) {
-                            imgui.ImGui_Text(comptime rightPad(itoa(i) ++ "-" ++ itoa(i + columns - 1), 5));
-                            imgui.ImGui_SameLineEx(0, 0);
-                        } else {
-                            imgui.ImGui_SameLineEx(0, 0);
-                        }
-
-                        const bit: i32 = @as(i32, 1) << i;
-                        var checked = (mask_int & bit) != 0;
-
-                        if (imgui.ImGui_Checkbox("##mask" ++ (comptime itoa(i)), &checked)) {
-                            if (checked) mask_int |= bit else mask_int &= ~bit;
-                            collider.mask = @enumFromInt(mask_int);
-                        }
-                    }
-
-                    imgui.ImGui_Unindent();
-
-                    imgui.ImGui_Separator();
-
-                    const shape_names: []const u8 = "Sphere" ++ .{0} ++ "Capsule" ++ .{0} ++ "Box" ++ .{ 0, 0 };
-                    var current_shape: i32 = switch (collider.type) {
-                        .sphere => 0,
-                        .capsule => 1,
-                        .box => 2,
-                    };
-                    if (imgui.ImGui_ComboEx("Shape##col", &current_shape, shape_names.ptr, -1)) {
-                        collider.type = switch (current_shape) {
-                            0 => .{ .sphere = .{ .radius = 1.0 } },
-                            1 => .{ .capsule = .{ .radius = 0.5, .half_height = 1.0 } },
-                            else => .{ .box = .{ .x = 1.0, .y = 1.0, .z = 1.0 } },
-                        };
-                    }
-
-                    imgui.ImGui_Indent();
-
-                    imgui.ImGui_PushItemWidth(width);
-
-                    switch (collider.type) {
-                        .sphere => |*sphere| _ = imgui.ImGui_DragFloat("Radius##sph", @ptrCast(&sphere.radius)),
-                        .capsule => |*capsule| {
-                            _ = imgui.ImGui_DragFloat("Radius##cap", @ptrCast(&capsule.radius));
-                            _ = imgui.ImGui_DragFloat("Height##cap", @ptrCast(&capsule.half_height));
-                        },
-                        .box => |*box| {
-                            _ = imgui.ImGui_DragFloat("Width##box", @ptrCast(&box.x));
-                            _ = imgui.ImGui_DragFloat("Height##box", @ptrCast(&box.y));
-                            _ = imgui.ImGui_DragFloat("Depth##box", @ptrCast(&box.z));
-                        },
-                    }
-
-                    imgui.ImGui_PopItemWidth();
-
-                    imgui.ImGui_Unindent();
-                    imgui.ImGui_Unindent();
-                }
-
-                if (data.rigidbody.has and imgui.ImGui_CollapsingHeader("Rigidbody", 0)) {
-                    imgui.ImGui_Indent();
-
-                    imgui.ImGui_PushItemWidth(width);
-
-                    if (imgui.ImGui_CollapsingHeader("Velocity", 0)) {
-                        imgui.ImGui_Indent();
-                        _ = imgui.ImGui_DragFloatEx("X##rb", @ptrCast(&data.rigidbody.value.velocity.x), 0.01, -1000.0, 1000.0, "%.3f", 0);
-                        _ = imgui.ImGui_DragFloatEx("Y##rb", @ptrCast(&data.rigidbody.value.velocity.y), 0.01, -1000.0, 1000.0, "%.3f", 0);
-                        _ = imgui.ImGui_DragFloatEx("Z##rb", @ptrCast(&data.rigidbody.value.velocity.z), 0.01, -1000.0, 1000.0, "%.3f", 0);
-                        imgui.ImGui_Unindent();
-                    }
-
-                    imgui.ImGui_Separator();
-
-                    _ = imgui.ImGui_DragFloat("Gravity##rb", @ptrCast(&data.rigidbody.value.gravity));
-                    _ = imgui.ImGui_DragFloat("Mass##rb", @ptrCast(&data.rigidbody.value.mass));
-                    _ = imgui.ImGui_DragFloat("Restitution##rb", @ptrCast(&data.rigidbody.value.restitution));
-
-                    imgui.ImGui_PopItemWidth();
-
-                    imgui.ImGui_Unindent();
-                }
-
-                if (data.grounded.has and imgui.ImGui_CollapsingHeader("Grounded", 0)) {
-                    imgui.ImGui_Indent();
-                    _ = imgui.ImGui_Checkbox("Grounded##gnd", &data.grounded.value.grounded);
-                    imgui.ImGui_Unindent();
-                }
-
-                if (data.health.has and imgui.ImGui_CollapsingHeader("Health", 0)) {
-                    imgui.ImGui_Indent();
-                    const hp = &data.health.value;
-
-                    imgui.ImGui_PushItemWidth(width);
-
-                    _ = imgui.ImGui_DragFloat("Current##hp", @ptrCast(&hp.current));
-                    _ = imgui.ImGui_DragFloat("Max##hp", @ptrCast(&hp.max));
-
-                    imgui.ImGui_PopItemWidth();
-
-                    imgui.ImGui_Unindent();
-                }
-            }
-        }.draw,
-    },
-},
-open_states: [1]bool = .{false} ** 1,
-selection: SingletonType,
-state: State = .closed,
-// TODO: Add position for spawning stuff.
-
-const Self = @This();
-
 pub fn init(window: Window, selection: SingletonType) Self {
     var new_imgui: Self = .{
         .io = undefined,
         .context = undefined,
-        .selection = selection,
+        .selection = .{
+            .singleton = selection,
+            .position = .zero,
+        },
         .tools = .{},
     };
 
@@ -444,6 +458,7 @@ pub fn update(
         .{ .name = "position", .type = Position },
         .{ .name = "rotation", .type = Rotation },
         .{ .name = "scale", .type = Scale },
+        .{ .name = "model", .type = Model },
         .{ .name = "collider", .type = Collider },
         .{ .name = "rigidbody", .type = Rigidbody },
         .{ .name = "grounded", .type = Grounded },
@@ -492,21 +507,25 @@ pub fn update(
             );
 
             if (hit) |raycast_result| {
-                ecs_engine.setSingletonsEntity(self.selection, raycast_result.body) catch unreachable;
+                if (window.input.getKeyState(.left_shift).isDown()) {
+                    ecs_engine.setSingletonsEntity(self.selection.singleton, raycast_result.body) catch unreachable;
 
-                inline for (inspected) |field| {
-                    if (ecs_engine.entityHas(raycast_result.body, field.type)) {
-                        const component = ecs_engine.getEntityComponent(raycast_result.body, field.type) catch unreachable;
-                        @field(self.tools.inspector.data, field.name).value = component.*;
+                    inline for (inspected) |field| {
+                        if (ecs_engine.entityHas(raycast_result.body, field.type)) {
+                            const component = ecs_engine.getEntityComponent(raycast_result.body, field.type) catch unreachable;
+                            @field(self.tools.inspector.data, field.name).value = component.*;
+                        }
                     }
+                } else {
+                    self.selection.position = raycast_result.position.coerce(Vector3);
                 }
             } else {
-                ecs_engine.clearSingletonsEntity(self.selection);
+                ecs_engine.clearSingletonsEntity(self.selection.singleton);
             }
         }
     }
 
-    if (ecs_engine.getSingletonsEntity(self.selection)) |selected_entity| {
+    if (ecs_engine.getSingletonsEntity(self.selection.singleton)) |selected_entity| {
         inline for (inspected) |field| {
             if (ecs_engine.entityHas(selected_entity, field.type)) {
                 const component = ecs_engine.getEntityComponent(selected_entity, field.type) catch unreachable;

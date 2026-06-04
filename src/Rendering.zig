@@ -8,8 +8,8 @@ const Io = std.Io;
 const Shader = @import("Shader.zig");
 const Program = @import("Program.zig");
 
-const Model = @import("components/Model.zig");
-const ModelInstance = @import("components/model_instance.zig").ModelInstance;
+const Model = @import("Model.zig");
+const ModelComponent = @import("components/model.zig").Model;
 const Position = @import("components/position.zig").Position;
 const Rotation = @import("components/rotation.zig").Rotation;
 const Scale = @import("components/scale.zig").Scale;
@@ -19,7 +19,7 @@ const Ecs = @import("ecs.zig").Ecs;
 const SingletonType = ecs.SingletonType;
 
 program: Program,
-model_instances: [1]Model,
+models: [1]Model,
 
 const Self = @This();
 
@@ -42,7 +42,7 @@ pub fn init(io: Io, allocator: std.mem.Allocator) !Self {
 
     return .{
         .program = try Program.create(.{ .shaders = &.{ vertex, fragment }, .allocator = allocator }),
-        .model_instances = .{
+        .models = .{
             Model.init(Model.cube),
         },
     };
@@ -77,41 +77,15 @@ pub fn render(self: *const Self, ecs_engine: *Ecs, player_singleton: SingletonTy
 
     render: {
         var tuple_iterator = ecs_engine.getTupleIterator(.{
-            .include = ecs.Template{ .components = &.{ Position, Scale, Rotation, Model } },
+            .include = ecs.Template{ .components = &.{ Position, Scale, Rotation, ModelComponent } },
         }) orelse break :render;
 
         self.drawModels(&tuple_iterator);
     }
-
-    render: {
-        var tuple_iterator = ecs_engine.getTupleIterator(.{
-            .include = ecs.Template{ .components = &.{ Position, Scale, Rotation, ModelInstance } },
-        }) orelse break :render;
-
-        self.drawIntances(&tuple_iterator);
-    }
 }
 
 pub fn drawModels(self: *const Self, iterator: *Ecs.TupleIterator(.{
-    .include = ecs.Template{ .components = &.{ Position, Scale, Rotation, Model } },
-})) void {
-    std.debug.assert(started_rendering: {
-        var current: i32 = 0;
-        glad.glGetIntegerv(glad.GL_CURRENT_PROGRAM, &current);
-        break :started_rendering current == @as(i32, @intCast(self.program.id));
-    });
-
-    const location = self.program.getUniform("model");
-    while (iterator.next()) |tuple| {
-        const mat: math.f32.Mat4 = .initModel(tuple[0].*, tuple[1].*, tuple[2].*);
-        glad.glUniformMatrix4fv(location, 1, glad.GL_FALSE, &mat.fields[0][0]);
-
-        tuple[3].draw();
-    }
-}
-
-pub fn drawIntances(self: *const Self, iterator: *Ecs.TupleIterator(.{
-    .include = ecs.Template{ .components = &.{ Position, Scale, Rotation, ModelInstance } },
+    .include = ecs.Template{ .components = &.{ Position, Scale, Rotation, ModelComponent } },
 })) void {
     std.debug.assert(started_rendering: {
         var current: i32 = 0;
@@ -122,30 +96,18 @@ pub fn drawIntances(self: *const Self, iterator: *Ecs.TupleIterator(.{
     const location = self.program.getUniform("model");
 
     var mat: math.f32.Mat4 = .identity;
-    var last_instance: ModelInstance = init: {
-        if (iterator.next()) |tuple| {
-            mat = .initModel(tuple[0].*, tuple[1].*, tuple[2].*);
-            glad.glUniformMatrix4fv(location, 1, glad.GL_FALSE, &mat.fields[0][0]);
-
-            self.model_instances[@intFromEnum(tuple[3].*)].bindVertex();
-            self.model_instances[@intFromEnum(tuple[3].*)].drawElements();
-
-            break :init tuple[3].*;
-        }
-
-        return;
-    };
-
     while (iterator.next()) |tuple| {
-        mat = .initModel(tuple[0].*, tuple[1].*, tuple[2].*);
+        const position: *Position = tuple[0];
+        const scale: *Scale = tuple[1];
+        const rotation: *Rotation = tuple[2];
+        const model: *ModelComponent = tuple[3];
+
+        mat = .initModel(position.*, scale.*, rotation.*);
         glad.glUniformMatrix4fv(location, 1, glad.GL_FALSE, &mat.fields[0][0]);
 
-        if (last_instance == tuple[3].*) {
-            self.model_instances[@intFromEnum(last_instance)].drawElements();
-        } else {
-            last_instance = tuple[3].*;
-            self.model_instances[@intFromEnum(last_instance)].bindVertex();
-            self.model_instances[@intFromEnum(last_instance)].drawElements();
+        switch (model.*) {
+            .cube => self.models[0].draw(),
+            _ => self.models[0].draw(),
         }
     }
 }

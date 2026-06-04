@@ -6,8 +6,7 @@ const Vector3 = math.f32.Vector3;
 
 const Physics = @import("Physics.zig");
 
-const Model = @import("components/Model.zig");
-const ModelInstance = @import("components/model_instance.zig").ModelInstance;
+const Model = @import("components/model.zig").Model;
 const Position = @import("components/position.zig").Position;
 const Rotation = @import("components/rotation.zig").Rotation;
 const Scale = @import("components/scale.zig").Scale;
@@ -179,7 +178,7 @@ pub fn update(ecs_engine: *Ecs, player_singleton: SingletonType, random: std.Ran
                                         },
                                         Scale{ .x = 0.1, .y = 0.1, .z = 0.1 },
                                         Rotation.identity,
-                                        ModelInstance.cube,
+                                        Model.cube,
                                         Collider{ .type = .{ .sphere = .{ .radius = 0.5 } } },
                                         Rigidbody{
                                             .velocity = player_direction.scale(enemy.attack.weapon.bullet.speed).coerce(Vector3),
@@ -207,7 +206,7 @@ pub fn update(ecs_engine: *Ecs, player_singleton: SingletonType, random: std.Ran
                                 },
                                 Scale{ .x = 0.1, .y = 0.1, .z = 0.1 },
                                 Rotation.identity,
-                                ModelInstance.cube,
+                                Model.cube,
                                 Collider{ .type = .{ .sphere = .{ .radius = 0.5 } } },
                                 Rigidbody{
                                     .velocity = player_direction.scale(enemy.attack.weapon.bullet.speed).coerce(Vector3),

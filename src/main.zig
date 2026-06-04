@@ -5,6 +5,8 @@ const ecs = @import("ecs");
 const glfw = @import("glfw");
 const math = @import("math");
 
+const json = @import("json.zig");
+
 const enemies = @import("enemies.zig");
 
 const Io = std.Io;
@@ -20,8 +22,7 @@ const Program = @import("Program.zig");
 const Rendering = @import("Rendering.zig");
 const Physics = @import("Physics.zig");
 
-const Model = @import("components/Model.zig");
-const ModelInstance = @import("components/model_instance.zig").ModelInstance;
+const Model = @import("components/model.zig").Model;
 const Position = @import("components/position.zig").Position;
 const Rotation = @import("components/rotation.zig").Rotation;
 const Scale = @import("components/scale.zig").Scale;
@@ -47,6 +48,17 @@ pub fn main(init: std.process.Init) !void {
         io.random(std.mem.asBytes(&seed));
         break :blk seed;
     });
+
+    {
+        const buffer = try std.Io.Dir.cwd().readFileAlloc(io, "assets/box.json", gpa, .unlimited);
+        defer gpa.free(buffer);
+
+        const value = try std.json.parseFromSlice(std.json.Value, gpa, buffer, .{});
+        defer value.deinit();
+
+        const object = try json.parseObject(value.value, gpa);
+        std.debug.print("{any}\n", .{object});
+    }
 
     const random: std.Random = prng.random();
 
@@ -132,7 +144,7 @@ pub fn main(init: std.process.Init) !void {
             break :outer @floatCast(delta_time);
         };
 
-        if (gui.launcher.data.game.physics) {
+        if (!gui.launcher.data.game.freeze) {
             physics.update(&ecs_engine, delta_time);
             handleCollision(&physics, &ecs_engine);
         }
@@ -150,7 +162,7 @@ pub fn main(init: std.process.Init) !void {
         if (gui.state == .just_closed) {
             ignore_input = false;
             window.setMouseMode(.disabled);
-            ecs_engine.clearSingletonsEntity(gui.selection);
+            ecs_engine.clearSingletonsEntity(gui.selection.singleton);
         }
 
         if (!gui.state.isOpen()) {
@@ -158,7 +170,7 @@ pub fn main(init: std.process.Init) !void {
                 .normal => {
                     handlePlayerInput(&ecs_engine, &window, player_singleton);
                 },
-                .flying => {
+                .cam => {
                     handleCamInput(&ecs_engine, &window, cam_singleton, delta_time);
                 },
             }
@@ -174,14 +186,14 @@ pub fn main(init: std.process.Init) !void {
                     ecs_engine.setSingletonsEntity(main_camera_singleton, id) catch unreachable;
                 }
             },
-            .flying => {
+            .cam => {
                 if (ecs_engine.getSingletonsEntity(cam_singleton)) |id| {
                     ecs_engine.setSingletonsEntity(main_camera_singleton, id) catch unreachable;
                 }
             },
         }
 
-        if (gui.launcher.data.game.ai)
+        if (!gui.launcher.data.game.freeze)
             enemies.update(&ecs_engine, target, random, delta_time);
 
         rendering.render(&ecs_engine, main_camera_singleton);
@@ -210,27 +222,29 @@ pub fn main(init: std.process.Init) !void {
             }
         }
 
-        destroy: {
-            var iterator = ecs_engine.getIterator(.{
-                .component = Health,
-            }) orelse break :destroy;
+        if (!gui.launcher.data.game.freeze) {
+            destroy: {
+                var iterator = ecs_engine.getIterator(.{
+                    .component = Health,
+                }) orelse break :destroy;
 
-            while (iterator.next()) |health| {
-                if (health.current <= 0) {
-                    ecs_engine.destroyEntity(iterator.getCurrentEntity());
+                while (iterator.next()) |health| {
+                    if (health.current <= 0) {
+                        ecs_engine.destroyEntity(iterator.getCurrentEntity());
+                    }
                 }
             }
-        }
 
-        destroy: {
-            var iterator = ecs_engine.getIterator(.{
-                .component = Bullet,
-            }) orelse break :destroy;
+            destroy: {
+                var iterator = ecs_engine.getIterator(.{
+                    .component = Bullet,
+                }) orelse break :destroy;
 
-            while (iterator.next()) |buller| {
-                buller.elapsed += delta_time;
-                if (buller.duration < buller.elapsed) {
-                    ecs_engine.destroyEntity(iterator.getCurrentEntity());
+                while (iterator.next()) |buller| {
+                    buller.elapsed += delta_time;
+                    if (buller.duration < buller.elapsed) {
+                        ecs_engine.destroyEntity(iterator.getCurrentEntity());
+                    }
                 }
             }
         }
@@ -375,7 +389,7 @@ pub fn handlePlayerInput(ecs_engine: *Ecs, window: *Window, player_singleton: Si
                 position.add(forward).add(Position{ .y = camera.offset }),
                 Scale{ .x = 0.1, .y = 0.1, .z = 0.1 },
                 Rotation.identity,
-                ModelInstance.cube,
+                Model.cube,
                 Collider{ .type = .{ .sphere = .{ .radius = 0.5 } } },
                 Rigidbody{ .velocity = forward.scale(50.0), .gravity = 0.0, .restitution = 0.0, .mass = 0.1 },
             }, &.{});
@@ -394,7 +408,7 @@ pub fn makeArena(ecs_engine: *Ecs, size: f32) void {
         Position{ .y = -0.5 },
         Scale{ .x = size, .y = 0.5, .z = size },
         Rotation.identity,
-        Model.init(Model.cube),
+        Model.cube,
         Collider{ .type = .{ .box = .{ .x = size, .y = 0.5, .z = size } } },
     }, &.{});
 
@@ -402,7 +416,7 @@ pub fn makeArena(ecs_engine: *Ecs, size: f32) void {
         Position{ .x = 0, .y = wall_height / 2.0 - 0.5, .z = -wall_offset },
         Scale{ .x = size, .y = wall_height, .z = wall_thickness },
         Rotation.identity,
-        Model.init(Model.cube),
+        Model.cube,
         Collider{ .type = .{ .box = .{ .x = size, .y = wall_height, .z = wall_thickness } } },
     }, &.{});
 
@@ -410,7 +424,7 @@ pub fn makeArena(ecs_engine: *Ecs, size: f32) void {
         Position{ .x = 0, .y = wall_height / 2.0 - 0.5, .z = wall_offset },
         Scale{ .x = size, .y = wall_height, .z = wall_thickness },
         Rotation.identity,
-        Model.init(Model.cube),
+        Model.cube,
         Collider{ .type = .{ .box = .{ .x = size, .y = wall_height, .z = wall_thickness } } },
     }, &.{});
 
@@ -418,7 +432,7 @@ pub fn makeArena(ecs_engine: *Ecs, size: f32) void {
         Position{ .x = -wall_offset, .y = wall_height / 2.0 - 0.5, .z = 0 },
         Scale{ .x = wall_thickness, .y = wall_height, .z = size },
         Rotation.identity,
-        Model.init(Model.cube),
+        Model.cube,
         Collider{ .type = .{ .box = .{ .x = wall_thickness, .y = wall_height, .z = size } } },
     }, &.{});
 
@@ -426,7 +440,7 @@ pub fn makeArena(ecs_engine: *Ecs, size: f32) void {
         Position{ .x = wall_offset, .y = wall_height / 2.0 - 0.5, .z = 0 },
         Scale{ .x = wall_thickness, .y = wall_height, .z = size },
         Rotation.identity,
-        Model.init(Model.cube),
+        Model.cube,
         Collider{ .type = .{ .box = .{ .x = wall_thickness, .y = wall_height, .z = size } } },
     }, &.{});
 
@@ -434,7 +448,7 @@ pub fn makeArena(ecs_engine: *Ecs, size: f32) void {
         Position{ .x = 10, .y = wall_height / 2.0 - 0.5, .z = 8 },
         Scale{ .x = wall_thickness, .y = wall_height, .z = 10 },
         Rotation.identity,
-        Model.init(Model.cube),
+        Model.cube,
         Collider{ .type = .{ .box = .{ .x = wall_thickness, .y = 3.0, .z = 10 } } },
     }, &.{});
 
@@ -442,7 +456,7 @@ pub fn makeArena(ecs_engine: *Ecs, size: f32) void {
         Position{ .y = 2.5 },
         Scale.one,
         Rotation.identity,
-        Model.init(Model.cube),
+        Model.cube,
         Collider{ .type = .{ .box = .one } },
         Rigidbody{ .velocity = .{ .y = -0.5 }, .restitution = 0.5, .mass = 10.0 },
     }, &.{});
@@ -451,7 +465,7 @@ pub fn makeArena(ecs_engine: *Ecs, size: f32) void {
         Position.zero,
         Scale.one,
         Rotation.identity,
-        Model.init(Model.cube),
+        Model.cube,
         Collider{ .type = .{ .box = .one } },
         Rigidbody{ .restitution = 0.5, .mass = 10.0 },
     }, &.{});
@@ -497,7 +511,7 @@ pub fn makeArena(ecs_engine: *Ecs, size: f32) void {
     //     Position{ .y = 1.5, .z = 3 },
     //     Scale{ .x = 1.0, .y = 2.0, .z = 1.0 },
     //     Rotation.identity,
-    //     Model.init(Model.cube),
+    //     Model.cube,
     //     Collider{ .type = .{ .capsule = .{ .radius = 0.5, .half_height = 1 } }, .layer = .enemy },
     //     Rigidbody{ .restitution = 0.0, .mass = 5.0 },
     //     Grounded{ .grounded = false },
@@ -544,7 +558,7 @@ pub fn makeArena(ecs_engine: *Ecs, size: f32) void {
         Position{ .y = 1.5, .z = 5, .x = 5 },
         Scale{ .x = 1.0, .y = 2.0, .z = 1.0 },
         Rotation.identity,
-        Model.init(Model.cube),
+        Model.cube,
         Collider{ .type = .{ .capsule = .{ .radius = 0.5, .half_height = 1 } }, .layer = .enemy },
         Rigidbody{ .restitution = 0.0, .mass = 5.0 },
         Grounded{ .grounded = false },

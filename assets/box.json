@@ -1,0 +1,18 @@
+{
+    "type": "rigidbody",
+    "scale": { "x": 0, "y" : 0, "z" : 0},
+    "rotation": [1, 0, 0, 0],
+    "model": "cube",
+    "collider": {
+        "type": {
+            "box": { "x": 1, "y": 1, "z": 1
+            }
+        }
+    },
+    "rigidbody": {
+        "velocity": { "x": 0, "y" : 0, "z": 0},
+        "gravity": -9.81,
+        "mass":  1.0,
+        "restitution": 0.5
+    }
+}
