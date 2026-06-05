@@ -14,7 +14,7 @@ const Io = std.Io;
 const Vector3 = math.f32.Vector3;
 
 const Window = @import("Window.zig");
-const ImGui = @import("ImGui.zig");
+const DebugGui = @import("DebugGui.zig");
 
 const Shader = @import("Shader.zig");
 const Program = @import("Program.zig");
@@ -67,8 +67,8 @@ pub fn main(init: std.process.Init) !void {
     var ecs_engine: Ecs = try .init(fba.allocator());
     defer ecs_engine.deinit();
 
-    var gui = ImGui.init(window, ecs_engine.createSingleton(.{}));
-    defer gui.deinit();
+    var debug_gui = DebugGui.init(window);
+    defer debug_gui.deinit();
 
     const main_camera_singleton = ecs_engine.createSingleton(.{ .components = &.{ Position, Camera } });
     const player_singleton = ecs_engine.createSingleton(.{ .components = &.{ Position, Rigidbody, Grounded, Camera } });
@@ -133,29 +133,29 @@ pub fn main(init: std.process.Init) !void {
             break :outer @floatCast(delta_time);
         };
 
-        if (!gui.launcher.data.game.freeze) {
+        if (!debug_gui.launcher.data.game.freeze) {
             physics.update(&ecs_engine, delta_time);
             handleCollision(&physics, &ecs_engine);
         }
 
         if (window.input.getKeyState(.escape) == .justPressed) {
-            if (gui.state.isOpen()) {
-                gui.close();
+            if (debug_gui.state.isOpen()) {
+                debug_gui.close();
             } else {
                 ignore_input = true;
                 window.setMouseMode(.captured);
-                gui.open();
+                debug_gui.open();
             }
         }
 
-        if (gui.state == .just_closed) {
+        if (debug_gui.state == .just_closed) {
             ignore_input = false;
             window.setMouseMode(.disabled);
-            ecs_engine.clearSingletonsEntity(gui.selection.singleton);
+            ecs_engine.clearSingletonsEntity(debug_gui.selection.singleton);
         }
 
-        if (!gui.state.isOpen()) {
-            switch (gui.launcher.data.game.mode) {
+        if (!debug_gui.state.isOpen()) {
+            switch (debug_gui.launcher.data.game.mode) {
                 .normal => {
                     handlePlayerInput(&ecs_engine, &window, player_singleton);
                 },
@@ -169,7 +169,7 @@ pub fn main(init: std.process.Init) !void {
             rigidbody.velocity.z = 0;
         }
 
-        switch (gui.launcher.data.game.mode) {
+        switch (debug_gui.launcher.data.game.mode) {
             .normal => {
                 if (ecs_engine.getSingletonsEntity(player_singleton)) |id| {
                     ecs_engine.setSingletonsEntity(main_camera_singleton, id) catch unreachable;
@@ -182,12 +182,12 @@ pub fn main(init: std.process.Init) !void {
             },
         }
 
-        if (!gui.launcher.data.game.freeze)
+        if (!debug_gui.launcher.data.game.freeze)
             enemies.update(&ecs_engine, target, random, delta_time);
 
         rendering.render(&ecs_engine, main_camera_singleton);
 
-        gui.update(&ecs_engine, &window, main_camera_singleton);
+        debug_gui.update(&ecs_engine, &window, main_camera_singleton);
 
         update_view: {
             var iterator = ecs_engine.getIterator(.{ .component = Camera }) orelse break :update_view;
@@ -211,7 +211,7 @@ pub fn main(init: std.process.Init) !void {
             }
         }
 
-        if (!gui.launcher.data.game.freeze) {
+        if (!debug_gui.launcher.data.game.freeze) {
             destroy: {
                 var iterator = ecs_engine.getIterator(.{
                     .component = Health,

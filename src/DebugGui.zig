@@ -5,6 +5,7 @@ const math = @import("math");
 const imgui = @import("imgui");
 
 const help = @import("imgui/help.zig");
+const editor = @import("imgui/windows/editor.zig");
 const inspector = @import("imgui/windows/inspector.zig");
 const launch = @import("imgui/windows/launcher.zig");
 
@@ -33,14 +34,16 @@ const Health = @import("components/Health.zig");
 const Bullet = @import("components/Bullet.zig");
 const Enemy = @import("components/Enemy.zig");
 
+const Tools = struct {
+    editor: editor.Editor = editor.init,
+    inspector: inspector.Inspector = inspector.init,
+};
+
 io: *imgui.struct_ImGuiIO_t,
 context: *imgui.ImGuiContext,
 launcher: launch.Launcher = launch.init,
-tools: struct {
-    editor: ,
-    inspector: inspector.Inspector = inspector.init,
-},
-open_states: [2]bool = .{false} ** 2,
+tools: Tools = .{},
+open_states: [@typeInfo(Tools).@"struct".fields.len]bool = .{false} ** @typeInfo(Tools).@"struct".fields.len,
 selection: struct {
     singleton: SingletonType,
     position: Vector3,
