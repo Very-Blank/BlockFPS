@@ -109,6 +109,8 @@ launcher: GuiWindow(LauncherData) = .{
                 defer imgui.ImGui_Unindent();
 
                 data.tools.inspector = imgui.ImGui_Button("Inspector");
+                imgui.ImGui_SameLine();
+                data.tools.editor = imgui.ImGui_Button("Editor");
             }
 
             imgui.ImGui_Separator();
@@ -132,6 +134,15 @@ launcher: GuiWindow(LauncherData) = .{
     }.draw,
 },
 tools: struct {
+    editor: GuiWindow(void) = .{
+        .name = "Editor",
+        .data = {},
+        .draw_fn = struct {
+            pub fn draw(_: *void) void {
+                imgui.ImGui_Text("Hello\n");
+            }
+        }.draw,
+    },
     inspector: GuiWindow(InspectorData) = .{
         .name = "Inspector",
         .data = .{},
@@ -311,7 +322,7 @@ tools: struct {
         }.draw,
     },
 },
-open_states: [1]bool = .{false} ** 1,
+open_states: [2]bool = .{false} ** 2,
 selection: struct {
     singleton: SingletonType,
     position: Vector3,
@@ -342,6 +353,7 @@ pub fn GuiWindow(comptime T: type) type {
 
 pub const LauncherData: type = struct {
     tools: struct {
+        editor: bool = false,
         inspector: bool = false,
     },
     game: struct {
@@ -395,13 +407,6 @@ pub const State = enum {
     }
 };
 
-/// Dark is default.
-pub const Style = enum {
-    dark,
-    light,
-    classic,
-};
-
 pub fn init(window: Window, selection: SingletonType) Self {
     var new_imgui: Self = .{
         .io = undefined,
@@ -452,6 +457,10 @@ pub fn update(
 ) void {
     if (self.launcher.data.tools.inspector) {
         self.tools.inspector.open = true;
+    }
+
+    if (self.launcher.data.tools.editor) {
+        self.tools.editor.open = true;
     }
 
     const inspected = .{
@@ -572,7 +581,7 @@ pub inline fn deinit(self: *Self) void {
     self.io = undefined;
 }
 
-pub inline fn setStyle(_: *Self, style: Style) void {
+pub inline fn setStyle(_: *Self, style: enum { dark, light, classic }) void {
     switch (style) {
         .dark => imgui.ImGui_StyleColorsDark(null),
         .light => imgui.ImGui_StyleColorsLight(null),

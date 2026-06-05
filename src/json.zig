@@ -18,14 +18,20 @@ const Bullet = @import("components/Bullet.zig");
 const Grounded = @import("components/Grounded.zig");
 
 const RigidbodyObject = struct { Position, Scale, Rotation, Model, Collider, Rigidbody };
+const StaticbodyObject = struct { Position, Scale, Rotation, Model, Collider };
+const ModelObject = struct { Position, Scale, Rotation, Model };
 
 const Type = enum {
     RigidbodyObject,
+    StaticbodyObject,
+    ModelObject,
 
     pub fn parse(value: std.json.Value) !Type {
         switch (value) {
             .string => |string| {
                 if (std.mem.eql(u8, "rigidbody", string)) return .RigidbodyObject;
+                if (std.mem.eql(u8, "staticbody", string)) return .StaticbodyObject;
+                if (std.mem.eql(u8, "model", string)) return .ModelObject;
             },
             else => {},
         }
@@ -36,6 +42,8 @@ const Type = enum {
 
 const Object = union(enum) {
     rigidbody: RigidbodyObject,
+    staticbody: StaticbodyObject,
+    model: ModelObject,
 };
 
 pub fn parseObject(value: std.json.Value, allocator: std.mem.Allocator) !Object {
@@ -46,47 +54,70 @@ pub fn parseObject(value: std.json.Value, allocator: std.mem.Allocator) !Object 
         .object => |object| {
             const @"type" = try Type.parse(object.get("type") orelse return error.InvalidValue);
 
-            switch (@"type") {
-                .RigidbodyObject => {
-                    return .{
-                        .rigidbody = .{
-                            .zero,
-                            try std.json.parseFromValueLeaky(Scale, allocator, object.get("scale") orelse return error.InvalidValue, .{
-                                .ignore_unknown_fields = true,
-                                .allocate = .alloc_if_needed,
-                            }),
-                            Rotation{ .fields = try std.json.parseFromValueLeaky([4]f32, allocator, object.get("rotation") orelse return error.InvalidValue, .{
-                                .ignore_unknown_fields = true,
-                                .allocate = .alloc_if_needed,
-                            }) },
-                            try std.json.parseFromValueLeaky(Model, allocator, object.get("model") orelse return error.InvalidValue, .{
-                                .ignore_unknown_fields = true,
-                                .allocate = .alloc_if_needed,
-                            }),
-                            try std.json.parseFromValueLeaky(Collider, allocator, object.get("collider") orelse return error.InvalidValue, .{
-                                .ignore_unknown_fields = true,
-                                .allocate = .alloc_if_needed,
-                            }),
-                            try std.json.parseFromValueLeaky(Rigidbody, allocator, object.get("rigidbody") orelse return error.InvalidValue, .{
-                                .ignore_unknown_fields = true,
-                                .allocate = .alloc_if_needed,
-                            }),
-                        },
-                    };
+            return switch (@"type") {
+                .RigidbodyObject => .{
+                    .rigidbody = .{
+                        .zero,
+                        try std.json.parseFromValueLeaky(Scale, allocator, object.get("scale") orelse return error.InvalidValue, .{
+                            .ignore_unknown_fields = true,
+                            .allocate = .alloc_if_needed,
+                        }),
+                        Rotation{ .fields = try std.json.parseFromValueLeaky([4]f32, allocator, object.get("rotation") orelse return error.InvalidValue, .{
+                            .ignore_unknown_fields = true,
+                            .allocate = .alloc_if_needed,
+                        }) },
+                        try std.json.parseFromValueLeaky(Model, allocator, object.get("model") orelse return error.InvalidValue, .{
+                            .ignore_unknown_fields = true,
+                            .allocate = .alloc_if_needed,
+                        }),
+                        try std.json.parseFromValueLeaky(Collider, allocator, object.get("collider") orelse return error.InvalidValue, .{
+                            .ignore_unknown_fields = true,
+                            .allocate = .alloc_if_needed,
+                        }),
+                        try std.json.parseFromValueLeaky(Rigidbody, allocator, object.get("rigidbody") orelse return error.InvalidValue, .{
+                            .ignore_unknown_fields = true,
+                            .allocate = .alloc_if_needed,
+                        }),
+                    },
                 },
-            }
+                .StaticbodyObject => .{
+                    .staticbody = .{
+                        try std.json.parseFromValueLeaky(Scale, allocator, object.get("scale") orelse return error.InvalidValue, .{
+                            .ignore_unknown_fields = true,
+                            .allocate = .alloc_if_needed,
+                        }),
+                        Rotation{ .fields = try std.json.parseFromValueLeaky([4]f32, allocator, object.get("rotation") orelse return error.InvalidValue, .{
+                            .ignore_unknown_fields = true,
+                            .allocate = .alloc_if_needed,
+                        }) },
+                        try std.json.parseFromValueLeaky(Model, allocator, object.get("model") orelse return error.InvalidValue, .{
+                            .ignore_unknown_fields = true,
+                            .allocate = .alloc_if_needed,
+                        }),
+                        try std.json.parseFromValueLeaky(Collider, allocator, object.get("collider") orelse return error.InvalidValue, .{
+                            .ignore_unknown_fields = true,
+                            .allocate = .alloc_if_needed,
+                        }),
+                    },
+                },
+                .ModelObject => .{
+                    .model = .{
+                        try std.json.parseFromValueLeaky(Scale, allocator, object.get("scale") orelse return error.InvalidValue, .{
+                            .ignore_unknown_fields = true,
+                            .allocate = .alloc_if_needed,
+                        }),
+                        Rotation{ .fields = try std.json.parseFromValueLeaky([4]f32, allocator, object.get("rotation") orelse return error.InvalidValue, .{
+                            .ignore_unknown_fields = true,
+                            .allocate = .alloc_if_needed,
+                        }) },
+                        try std.json.parseFromValueLeaky(Model, allocator, object.get("model") orelse return error.InvalidValue, .{
+                            .ignore_unknown_fields = true,
+                            .allocate = .alloc_if_needed,
+                        }),
+                    },
+                },
+            };
         },
         else => return error.InvalidValue,
     }
-}
-
-test "Something" {
-    const io = std.testing.io;
-    const allocator = std.testing.allocator;
-
-    const json = std.Io.Dir.cwd().readFileAlloc(io, "assets/box.json", allocator, .unlimited);
-    defer allocator.free(json);
-
-    const object = try parseObject(try std.json.parseFromSlice(std.json.Value, allocator, json, .{}), allocator);
-    std.debug.print("{any}\n", .{object});
 }

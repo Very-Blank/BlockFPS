@@ -49,17 +49,6 @@ pub fn main(init: std.process.Init) !void {
         break :blk seed;
     });
 
-    {
-        const buffer = try std.Io.Dir.cwd().readFileAlloc(io, "assets/box.json", gpa, .unlimited);
-        defer gpa.free(buffer);
-
-        const value = try std.json.parseFromSlice(std.json.Value, gpa, buffer, .{});
-        defer value.deinit();
-
-        const object = try json.parseObject(value.value, gpa);
-        std.debug.print("{any}\n", .{object});
-    }
-
     const random: std.Random = prng.random();
 
     var window = try Window.init("Game", 100, 100);
