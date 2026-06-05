@@ -2,6 +2,8 @@
 
 List of things to ignore.
 
+- [ ] Multiselection and multi editing for inspector!
+
 - [ ] Add level editor tool (Spawner).
 - [ ] Add highlight to selected objects.
 - [ ] Cheats like god mode etc.
