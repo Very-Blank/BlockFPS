@@ -5,8 +5,6 @@ const ecs = @import("ecs");
 const glfw = @import("glfw");
 const math = @import("math");
 
-const json = @import("json.zig");
-
 const enemies = @import("enemies.zig");
 
 const Io = std.Io;
@@ -67,7 +65,7 @@ pub fn main(init: std.process.Init) !void {
     var ecs_engine: Ecs = try .init(fba.allocator());
     defer ecs_engine.deinit();
 
-    var debug_gui = DebugGui.init(window);
+    var debug_gui = DebugGui.init(window, gpa);
     defer debug_gui.deinit();
 
     const main_camera_singleton = ecs_engine.createSingleton(.{ .components = &.{ Position, Camera } });
@@ -151,7 +149,7 @@ pub fn main(init: std.process.Init) !void {
         if (debug_gui.state == .just_closed) {
             ignore_input = false;
             window.setMouseMode(.disabled);
-            ecs_engine.clearSingletonsEntity(debug_gui.selection.singleton);
+            // ecs_engine.clearSingletonsEntity(debug_gui.selections.singleton);
         }
 
         if (!debug_gui.state.isOpen()) {
@@ -167,6 +165,14 @@ pub fn main(init: std.process.Init) !void {
             const rigidbody = ecs_engine.getEntityComponent(id, Rigidbody) catch unreachable;
             rigidbody.velocity.x = 0;
             rigidbody.velocity.z = 0;
+        }
+
+        const links = ecs_engine.getLinks("parent");
+        for (links.data, 0..) |data, i| {
+            const src_position = ecs_engine.getEntityComponent(links.sources[i], Position) catch unreachable;
+            const dst_position = ecs_engine.getEntityComponent(links.destinations[i], Position) catch unreachable;
+
+            dst_position.* = src_position.add(data);
         }
 
         switch (debug_gui.launcher.data.game.mode) {
@@ -187,7 +193,7 @@ pub fn main(init: std.process.Init) !void {
 
         rendering.render(&ecs_engine, main_camera_singleton);
 
-        debug_gui.update(&ecs_engine, &window, main_camera_singleton);
+        try debug_gui.update(&ecs_engine, &window, main_camera_singleton);
 
         update_view: {
             var iterator = ecs_engine.getIterator(.{ .component = Camera }) orelse break :update_view;

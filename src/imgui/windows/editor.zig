@@ -25,15 +25,15 @@ const Bullet = @import("../../components/Bullet.zig");
 const Enemy = @import("../../components/Enemy.zig");
 
 pub const EditorData = struct {
-    assets: [][:0]const u8,
-    current: u32,
+    assets: []const [:0]const u8 = &.{ "block", "gun", "sniper", "gunman" },
+    current: u32 = 0,
 };
 
 pub const Editor = Window(EditorData);
 
 pub const init: Editor = .{
     .name = "Editor",
-    .data = {},
+    .data = .{},
     .draw_fn = struct {
         pub fn draw(_: *EditorData) void {
             imgui.ImGui_Text("Hello\n");

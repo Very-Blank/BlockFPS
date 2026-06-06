@@ -76,7 +76,7 @@ pub const init: Inspector = .{
                     imgui.ImGui_Indent();
                     defer imgui.ImGui_Unindent();
 
-                    help.vectorField(Scale, &data.scale.value, "##pos", .{});
+                    help.vectorField(Scale, &data.scale.value, "##scale", .{});
                 }
             }
 

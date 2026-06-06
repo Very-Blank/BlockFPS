@@ -1,5 +1,6 @@
 const std = @import("std");
 const imgui = @import("imgui");
+const standards = @import("standards.zig");
 
 pub fn itoa(comptime value: anytype) [:0]const u8 {
     comptime var string: [:0]const u8 = "";
@@ -44,7 +45,7 @@ pub inline fn vectorField(
     options: struct { speed: f32 = 0.01, min: f32 = -1000.0, max: f32 = 1000.0 },
 ) void {
     inline for (.{ "x", "y", "z" }) |field| {
-        _ = imgui.ImGui_DragFloatEx(std.ascii.toUpper(field) ++ name, @ptrCast(&@field(value, field)), options.speed, options.min, options.max, "%.3f", 0);
+        _ = imgui.ImGui_DragFloatEx(.{std.ascii.toUpper(field[0])} ++ name, @ptrCast(&@field(value, field)), options.speed, options.min, options.max, "%.3f", 0);
     }
 }
 

@@ -1,6 +1,5 @@
 const std = @import("std");
 const ecs = @import("ecs");
-const json = @import("json.zig");
 const math = @import("math");
 const imgui = @import("imgui");
 
@@ -11,6 +10,7 @@ const launch = @import("imgui/windows/launcher.zig");
 
 const Ecs = @import("ecs.zig").Ecs;
 const SingletonType = ecs.SingletonType;
+const EntityPointer = ecs.EntityPointer;
 
 const Physics = @import("Physics.zig");
 
@@ -44,9 +44,9 @@ context: *imgui.ImGuiContext,
 launcher: launch.Launcher = launch.init,
 tools: Tools = .{},
 open_states: [@typeInfo(Tools).@"struct".fields.len]bool = .{false} ** @typeInfo(Tools).@"struct".fields.len,
-selection: struct {
-    singleton: SingletonType,
-    position: Vector3,
+selections: struct {
+    positions: std.ArrayList(Vector3),
+    entitys: std.ArrayList(EntityPointer),
 },
 state: enum {
     just_opened,
@@ -74,18 +74,20 @@ state: enum {
         };
     }
 } = .closed,
+allocator: std.mem.Allocator,
 
 const Self = @This();
 
-pub fn init(window: Window, selection: SingletonType) Self {
+pub fn init(window: Window, allocator: std.mem.Allocator) Self {
     var new_imgui: Self = .{
         .io = undefined,
         .context = undefined,
-        .selection = .{
-            .singleton = selection,
-            .position = .zero,
+        .selections = .{
+            .entitys = .empty,
+            .positions = .empty,
         },
         .tools = .{},
+        .allocator = allocator,
     };
 
     new_imgui.context = imgui.ImGui_CreateContext(null).?;
@@ -95,6 +97,18 @@ pub fn init(window: Window, selection: SingletonType) Self {
     new_imgui.io = imgui.ImGui_GetIO();
 
     return new_imgui;
+}
+
+pub fn deinit(self: *Self) void {
+    imgui.cImGui_ImplOpenGL3_Shutdown();
+    imgui.cImGui_ImplGlfw_Shutdown();
+    imgui.ImGui_DestroyContext(self.context);
+
+    self.selections.entitys.clearAndFree(self.allocator);
+    self.selections.positions.clearAndFree(self.allocator);
+
+    self.context = undefined;
+    self.io = undefined;
 }
 
 pub fn open(self: *Self) void {
@@ -110,6 +124,13 @@ pub fn open(self: *Self) void {
 pub fn close(self: *Self) void {
     self.launcher.open = false;
 
+    inline for (inspected) |field| {
+        @field(self.tools.inspector.data, field.name).has = false;
+    }
+
+    self.selections.entitys.clearRetainingCapacity();
+    self.selections.positions.clearRetainingCapacity();
+
     inline for (@typeInfo(@FieldType(Self, "tools")).@"struct".fields, 0..) |field, i| {
         self.open_states[i] = @field(self.tools, field.name).open;
         @field(self.tools, field.name).open = false;
@@ -118,13 +139,23 @@ pub fn close(self: *Self) void {
     self.state.update(false);
 }
 
+const inspected = .{
+    .{ .name = "position", .type = Position },
+    .{ .name = "rotation", .type = Rotation },
+    .{ .name = "scale", .type = Scale },
+    .{ .name = "model", .type = Model },
+    .{ .name = "collider", .type = Collider },
+    .{ .name = "rigidbody", .type = Rigidbody },
+    .{ .name = "grounded", .type = Grounded },
+    .{ .name = "health", .type = Health },
+};
 // Returns true if any of the debug windows are open.
 pub fn update(
     self: *Self,
     ecs_engine: *Ecs,
     window: *Window,
     main_camera_singleton: SingletonType,
-) void {
+) !void {
     if (self.launcher.data.tools.inspector) {
         self.tools.inspector.open = true;
     }
@@ -133,16 +164,18 @@ pub fn update(
         self.tools.editor.open = true;
     }
 
-    const inspected = .{
-        .{ .name = "position", .type = Position },
-        .{ .name = "rotation", .type = Rotation },
-        .{ .name = "scale", .type = Scale },
-        .{ .name = "model", .type = Model },
-        .{ .name = "collider", .type = Collider },
-        .{ .name = "rigidbody", .type = Rigidbody },
-        .{ .name = "grounded", .type = Grounded },
-        .{ .name = "health", .type = Health },
-    };
+    var i: usize = 0;
+    while (i < self.selections.entitys.items.len) {
+        if (!ecs_engine.entityIsValid(self.selections.entitys.items[i])) {
+            _ = self.selections.entitys.orderedRemove(i);
+
+            if (i == self.selections.entitys.items.len and 0 < self.selections.entitys.items.len) {
+                self.syncInspector(ecs_engine, self.selections.entitys.items[self.selections.entitys.items.len - 1]);
+            }
+        } else {
+            i += 1;
+        }
+    }
 
     if (!self.io.WantCaptureMouse and window.input.mouse_state.left_click == .justPressed) {
         if (ecs_engine.getSingletonsEntity(main_camera_singleton)) |id| {
@@ -186,38 +219,27 @@ pub fn update(
             );
 
             if (hit) |raycast_result| {
-                if (window.input.getKeyState(.left_shift).isDown()) {
-                    ecs_engine.setSingletonsEntity(self.selection.singleton, raycast_result.body) catch unreachable;
-
-                    inline for (inspected) |field| {
-                        if (ecs_engine.entityHas(raycast_result.body, field.type)) {
-                            const component = ecs_engine.getEntityComponent(raycast_result.body, field.type) catch unreachable;
-                            @field(self.tools.inspector.data, field.name).value = component.*;
-                        }
-                    }
+                if (window.input.getKeyState(.left_control).isDown()) {
+                    try self.addEntitySelection(ecs_engine, raycast_result.body);
+                } else if (window.input.getKeyState(.left_shift).isDown()) {
+                    try self.selections.positions.append(self.allocator, raycast_result.position.coerce(Vector3));
                 } else {
-                    self.selection.position = raycast_result.position.coerce(Vector3);
+                    self.selections.entitys.clearRetainingCapacity();
+                    self.selections.positions.clearRetainingCapacity();
+
+                    try self.addEntitySelection(ecs_engine, raycast_result.body);
+                    try self.selections.positions.append(self.allocator, raycast_result.position);
                 }
             } else {
-                ecs_engine.clearSingletonsEntity(self.selection.singleton);
+                self.selections.entitys.clearRetainingCapacity();
+                self.selections.positions.clearRetainingCapacity();
             }
         }
     }
 
-    if (ecs_engine.getSingletonsEntity(self.selection.singleton)) |selected_entity| {
-        inline for (inspected) |field| {
-            if (ecs_engine.entityHas(selected_entity, field.type)) {
-                const component = ecs_engine.getEntityComponent(selected_entity, field.type) catch unreachable;
-                component.* = @field(self.tools.inspector.data, field.name).value;
-                @field(self.tools.inspector.data, field.name).has = true;
-            } else {
-                @field(self.tools.inspector.data, field.name).has = false;
-            }
-        }
-    } else {
-        inline for (inspected) |field| {
-            @field(self.tools.inspector.data, field.name).has = false;
-        }
+    if (0 < self.selections.entitys.items.len) {
+        const current_selected = self.selections.entitys.items[self.selections.entitys.items.len - 1];
+        self.setInspectorValues(ecs_engine, current_selected);
     }
 
     self.newFrame();
@@ -242,16 +264,47 @@ pub fn update(
     self.state.update(is_open);
 }
 
-pub inline fn deinit(self: *Self) void {
-    imgui.cImGui_ImplOpenGL3_Shutdown();
-    imgui.cImGui_ImplGlfw_Shutdown();
-    imgui.ImGui_DestroyContext(self.context);
-
-    self.context = undefined;
-    self.io = undefined;
+pub fn setInspectorValues(self: *Self, ecs_engine: *Ecs, entity: EntityPointer) void {
+    inline for (inspected) |field| {
+        if (ecs_engine.entityHas(entity, field.type)) {
+            const component = ecs_engine.getEntityComponent(entity, field.type) catch unreachable;
+            component.* = @field(self.tools.inspector.data, field.name).value;
+        }
+    }
 }
 
-pub inline fn setStyle(_: *Self, style: enum { dark, light, classic }) void {
+pub fn syncInspector(self: *Self, ecs_engine: *Ecs, entity: EntityPointer) void {
+    inline for (inspected) |field| {
+        if (ecs_engine.entityHas(entity, field.type)) {
+            const component = ecs_engine.getEntityComponent(entity, field.type) catch unreachable;
+            @field(self.tools.inspector.data, field.name).value = component.*;
+            @field(self.tools.inspector.data, field.name).has = true;
+        } else {
+            @field(self.tools.inspector.data, field.name).has = false;
+        }
+    }
+}
+
+pub fn addEntitySelection(self: *Self, ecs_engine: *Ecs, entity: EntityPointer) !void {
+    set: {
+        for (self.selections.entitys.items, 0..) |list_entity, i| {
+            if (list_entity.eql(entity)) {
+                if (i + 1 == self.selections.entitys.items.len) break :set;
+
+                _ = self.selections.entitys.swapRemove(i);
+                self.selections.entitys.appendAssumeCapacity(entity);
+
+                break :set;
+            }
+        }
+
+        try self.selections.entitys.append(self.allocator, entity);
+    }
+
+    self.syncInspector(ecs_engine, entity);
+}
+
+pub fn setStyle(_: *Self, style: enum { dark, light, classic }) void {
     switch (style) {
         .dark => imgui.ImGui_StyleColorsDark(null),
         .light => imgui.ImGui_StyleColorsLight(null),
@@ -260,7 +313,7 @@ pub inline fn setStyle(_: *Self, style: enum { dark, light, classic }) void {
 }
 
 // Start a new Dear ImGui frame, you can submit any command from this point until Render()/EndFrame()
-pub inline fn newFrame(self: *const Self) void {
+pub fn newFrame(self: *const Self) void {
     imgui.ImGui_SetCurrentContext(self.context);
 
     imgui.cImGui_ImplOpenGL3_NewFrame();
@@ -273,7 +326,7 @@ pub fn endFrame() void {
     imgui.ImGui_EndFrame();
 }
 
-pub inline fn render() void {
+pub fn render() void {
     imgui.ImGui_Render();
     imgui.cImGui_ImplOpenGL3_RenderDrawData(imgui.ImGui_GetDrawData());
 }
