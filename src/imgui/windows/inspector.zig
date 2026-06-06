@@ -35,7 +35,7 @@ pub const InspectorData = struct {
     position: Value(Position) = .{ .value = .zero },
     rotation: Value(Rotation) = .{ .value = .identity },
     scale: Value(Scale) = .{ .value = .zero },
-    model: Value(Model) = .{ .value = .cube },
+    model: Value(Model) = .{ .value = .{} },
     collider: Value(Collider) = .{ .value = Collider{ .type = .{ .sphere = .{ .radius = 0.0 } } } },
     rigidbody: Value(Rigidbody) = .{ .value = .{} },
     grounded: Value(Grounded) = .{ .value = .{} },
@@ -84,7 +84,8 @@ pub const init: Inspector = .{
                 imgui.ImGui_Indent();
                 defer imgui.ImGui_Unindent();
 
-                help.enumSelector(Model, &data.model.value, "Model##enum");
+                help.enumSelector(Model.Type, &data.model.value.type, "Type##Model");
+                _ = imgui.ImGui_Checkbox("Outline##Model", &data.model.value.outline);
             }
 
             if (data.collider.has and imgui.ImGui_CollapsingHeader("Collider", 0)) {

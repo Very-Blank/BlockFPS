@@ -14,6 +14,7 @@ pub const Collider = struct {
         default = 1,
         enemy = 1 << 2,
         player = 1 << 3,
+        debug = 1 << 15,
     };
 
     pub const Mask = enum(T) {

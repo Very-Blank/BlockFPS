@@ -18,30 +18,25 @@ const Camera = @import("components/Camera.zig");
 const Ecs = @import("ecs.zig").Ecs;
 const SingletonType = ecs.SingletonType;
 
-program: Program,
+programs: struct {
+    main: Program,
+    outline: Program,
+},
 models: [1]Model,
 
 const Self = @This();
 
 pub fn init(io: Io, allocator: std.mem.Allocator) !Self {
-    const vertex = init_vertex: {
-        const buffer: [:0]const u8 = try Io.Dir.cwd().readFileAllocOptions(io, "shaders/vertex.glsl", allocator, .unlimited, .@"1", 0);
-        defer allocator.free(buffer);
-        break :init_vertex try Shader.create(.{ .type = .vertex, .source = buffer, .allocator = allocator });
-    };
-
-    defer vertex.destroy();
-
-    const fragment = init_vertex: {
-        const buffer: [:0]const u8 = try Io.Dir.cwd().readFileAllocOptions(io, "shaders/fragment.glsl", allocator, .unlimited, .@"1", 0);
-        defer allocator.free(buffer);
-        break :init_vertex try Shader.create(.{ .type = .fragment, .source = buffer, .allocator = allocator });
-    };
-
-    defer fragment.destroy();
+    const main = try createProgram(io, "shaders/vertex.glsl", "shaders/fragment.glsl", allocator);
+    errdefer main.destroy();
+    const outline = try createProgram(io, "shaders/outline_vertex.glsl", "shaders/outline_fragment.glsl", allocator);
+    errdefer outline.destroy();
 
     return .{
-        .program = try Program.create(.{ .shaders = &.{ vertex, fragment }, .allocator = allocator }),
+        .programs = .{
+            .main = main,
+            .outline = outline,
+        },
         .models = .{
             Model.init(Model.cube),
         },
@@ -49,7 +44,29 @@ pub fn init(io: Io, allocator: std.mem.Allocator) !Self {
 }
 
 pub fn deinit(self: *const Self) void {
-    self.program.destroy();
+    inline for (@typeInfo(@FieldType(Self, "programs")).@"struct".fields) |field| {
+        @field(self.programs, field.name).destroy();
+    }
+}
+
+fn createProgram(io: Io, vertex_path: []const u8, fragment_path: []const u8, allocator: std.mem.Allocator) !Program {
+    const vertex = init_vertex: {
+        const buffer: [:0]const u8 = try Io.Dir.cwd().readFileAllocOptions(io, vertex_path, allocator, .unlimited, .@"1", 0);
+        defer allocator.free(buffer);
+        break :init_vertex try Shader.create(.{ .type = .vertex, .source = buffer, .allocator = allocator });
+    };
+
+    defer vertex.destroy();
+
+    const fragment = init_vertex: {
+        const buffer: [:0]const u8 = try Io.Dir.cwd().readFileAllocOptions(io, fragment_path, allocator, .unlimited, .@"1", 0);
+        defer allocator.free(buffer);
+        break :init_vertex try Shader.create(.{ .type = .fragment, .source = buffer, .allocator = allocator });
+    };
+
+    defer fragment.destroy();
+
+    return Program.create(.{ .shaders = &.{ vertex, fragment }, .allocator = allocator });
 }
 
 pub fn render(self: *const Self, ecs_engine: *Ecs, player_singleton: SingletonType) void {
@@ -70,48 +87,57 @@ pub fn render(self: *const Self, ecs_engine: *Ecs, player_singleton: SingletonTy
         break :init .{ .identity, .identity };
     };
 
-    self.startRender();
+    self.programs.outline.use();
 
-    glad.glUniformMatrix4fv(self.program.getUniform("view"), 1, glad.GL_FALSE, &view.fields[0][0]);
-    glad.glUniformMatrix4fv(self.program.getUniform("projection"), 1, glad.GL_FALSE, &projection.fields[0][0]);
+    glad.glUniformMatrix4fv(self.programs.outline.getUniform("view"), 1, glad.GL_FALSE, &view.fields[0][0]);
+    glad.glUniformMatrix4fv(self.programs.outline.getUniform("projection"), 1, glad.GL_FALSE, &projection.fields[0][0]);
+
+    self.programs.main.use();
+
+    glad.glUniformMatrix4fv(self.programs.main.getUniform("view"), 1, glad.GL_FALSE, &view.fields[0][0]);
+    glad.glUniformMatrix4fv(self.programs.main.getUniform("projection"), 1, glad.GL_FALSE, &projection.fields[0][0]);
 
     render: {
-        var tuple_iterator = ecs_engine.getTupleIterator(.{
+        var iterator = ecs_engine.getTupleIterator(.{
             .include = ecs.Template{ .components = &.{ Position, Scale, Rotation, ModelComponent } },
         }) orelse break :render;
 
-        self.drawModels(&tuple_iterator);
-    }
-}
+        const main_model_location = self.programs.main.getUniform("model");
+        const outline_model_location = self.programs.outline.getUniform("model");
+        const outline_scale_location = self.programs.outline.getUniform("scale");
 
-pub fn drawModels(self: *const Self, iterator: *Ecs.TupleIterator(.{
-    .include = ecs.Template{ .components = &.{ Position, Scale, Rotation, ModelComponent } },
-})) void {
-    std.debug.assert(started_rendering: {
-        var current: i32 = 0;
-        glad.glGetIntegerv(glad.GL_CURRENT_PROGRAM, &current);
-        break :started_rendering current == @as(i32, @intCast(self.program.id));
-    });
+        glad.glCullFace(glad.GL_BACK);
 
-    const location = self.program.getUniform("model");
+        var mat: math.f32.Mat4 = .identity;
+        while (iterator.next()) |tuple| {
+            const position: *Position = tuple[0];
+            const scale: *Scale = tuple[1];
+            const rotation: *Rotation = tuple[2];
+            const model: *ModelComponent = tuple[3];
 
-    var mat: math.f32.Mat4 = .identity;
-    while (iterator.next()) |tuple| {
-        const position: *Position = tuple[0];
-        const scale: *Scale = tuple[1];
-        const rotation: *Rotation = tuple[2];
-        const model: *ModelComponent = tuple[3];
+            mat = .initModel(position.*, scale.*, rotation.*);
+            glad.glUniformMatrix4fv(main_model_location, 1, glad.GL_FALSE, &mat.fields[0][0]);
 
-        mat = .initModel(position.*, scale.*, rotation.*);
-        glad.glUniformMatrix4fv(location, 1, glad.GL_FALSE, &mat.fields[0][0]);
+            if (model.outline) {
+                self.programs.outline.use();
+                glad.glUniform3fv(outline_scale_location, 1, &scale.x);
+                glad.glUniformMatrix4fv(outline_model_location, 1, glad.GL_FALSE, &mat.fields[0][0]);
 
-        switch (model.*) {
-            .cube => self.models[0].draw(),
-            _ => self.models[0].draw(),
+                glad.glCullFace(glad.GL_FRONT);
+
+                switch (model.type) {
+                    .cube => self.models[0].draw(),
+                    _ => self.models[0].draw(),
+                }
+
+                glad.glCullFace(glad.GL_BACK);
+                self.programs.main.use();
+            }
+
+            switch (model.type) {
+                .cube => self.models[0].draw(),
+                _ => self.models[0].draw(),
+            }
         }
     }
-}
-
-pub fn startRender(self: *const Self) void {
-    self.program.use();
 }

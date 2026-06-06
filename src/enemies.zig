@@ -178,7 +178,7 @@ pub fn update(ecs_engine: *Ecs, player_singleton: SingletonType, random: std.Ran
                                         },
                                         Scale{ .x = 0.1, .y = 0.1, .z = 0.1 },
                                         Rotation.identity,
-                                        Model.cube,
+                                        Model{},
                                         Collider{ .type = .{ .sphere = .{ .radius = 0.5 } } },
                                         Rigidbody{
                                             .velocity = player_direction.scale(enemy.attack.weapon.bullet.speed).coerce(Vector3),
@@ -206,7 +206,7 @@ pub fn update(ecs_engine: *Ecs, player_singleton: SingletonType, random: std.Ran
                                 },
                                 Scale{ .x = 0.1, .y = 0.1, .z = 0.1 },
                                 Rotation.identity,
-                                Model.cube,
+                                Model{},
                                 Collider{ .type = .{ .sphere = .{ .radius = 0.5 } } },
                                 Rigidbody{
                                     .velocity = player_direction.scale(enemy.attack.weapon.bullet.speed).coerce(Vector3),

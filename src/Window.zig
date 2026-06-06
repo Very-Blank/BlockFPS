@@ -50,7 +50,7 @@ pub fn init(name: []const u8, width: i32, height: i32) !Self {
 
                 glad.glEnable(glad.GL_DEPTH_TEST);
                 glad.glDepthFunc(glad.GL_LESS);
-                glad.glPointSize(5.0);
+                glad.glEnable(glad.GL_CULL_FACE);
 
                 break :init_glfw_ptr ptr;
             }

@@ -121,11 +121,18 @@ pub fn open(self: *Self) void {
     self.state.update(true);
 }
 
-pub fn close(self: *Self) void {
+pub fn close(self: *Self, ecs_engine: *Ecs) void {
     self.launcher.open = false;
 
     inline for (inspected) |field| {
         @field(self.tools.inspector.data, field.name).has = false;
+    }
+
+    for (self.selections.entitys.items) |entity| {
+        if (ecs_engine.entityIsValid(entity) and ecs_engine.entityHas(entity, Model)) {
+            const model: *Model = ecs_engine.getEntityComponent(entity, Model) catch unreachable;
+            model.outline = false;
+        }
     }
 
     self.selections.entitys.clearRetainingCapacity();
@@ -218,21 +225,73 @@ pub fn update(
                 Mask.all.remove(&.{.player}),
             );
 
-            if (hit) |raycast_result| {
-                if (window.input.getKeyState(.left_control).isDown()) {
-                    try self.addEntitySelection(ecs_engine, raycast_result.body);
-                } else if (window.input.getKeyState(.left_shift).isDown()) {
-                    try self.selections.positions.append(self.allocator, raycast_result.position.coerce(Vector3));
+            something: {
+                if (hit) |raycast_result| {
+                    if (ecs_engine.entityHas(raycast_result.body, math.AxisType)) {
+                        const axis = ecs_engine.getEntityComponent(raycast_result.body, math.AxisType) catch unreachable;
+                        switch (axis.*) {
+                            .x => {
+                                for (self.selections.entitys.items) |entity| {
+                                    const pos: *Position = ecs_engine.getEntityComponent(entity, Position) catch unreachable;
+                                    pos.* = pos.add(Position.right);
+                                }
+                            },
+                            .y => {
+                                for (self.selections.entitys.items) |entity| {
+                                    const pos: *Position = ecs_engine.getEntityComponent(entity, Position) catch unreachable;
+                                    pos.* = pos.add(Position.up);
+                                }
+                            },
+                            .z => {
+                                for (self.selections.entitys.items) |entity| {
+                                    const pos: *Position = ecs_engine.getEntityComponent(entity, Position) catch unreachable;
+                                    pos.* = pos.add(Position.forward);
+                                }
+                            },
+                        }
+
+                        self.syncInspector(ecs_engine, self.selections.entitys.items[self.selections.entitys.items.len - 1]);
+
+                        break :something;
+                    }
+
+                    if (window.input.getKeyState(.left_control).isDown()) {
+                        self.selections.positions.clearRetainingCapacity();
+
+                        try self.addEntitySelection(ecs_engine, raycast_result.body);
+                    } else if (window.input.getKeyState(.left_shift).isDown()) {
+                        for (self.selections.entitys.items) |entity| {
+                            if (ecs_engine.entityHas(entity, Model)) {
+                                const model: *Model = ecs_engine.getEntityComponent(entity, Model) catch unreachable;
+                                model.outline = false;
+                            }
+                        }
+                        self.selections.entitys.clearRetainingCapacity();
+
+                        try self.selections.positions.append(self.allocator, raycast_result.position.coerce(Vector3));
+                    } else {
+                        for (self.selections.entitys.items) |entity| {
+                            if (ecs_engine.entityHas(entity, Model)) {
+                                const model: *Model = ecs_engine.getEntityComponent(entity, Model) catch unreachable;
+                                model.outline = false;
+                            }
+                        }
+                        self.selections.entitys.clearRetainingCapacity();
+                        self.selections.positions.clearRetainingCapacity();
+
+                        try self.addEntitySelection(ecs_engine, raycast_result.body);
+                        try self.selections.positions.append(self.allocator, raycast_result.position);
+                    }
                 } else {
+                    for (self.selections.entitys.items) |entity| {
+                        if (ecs_engine.entityHas(entity, Model)) {
+                            const model: *Model = ecs_engine.getEntityComponent(entity, Model) catch unreachable;
+                            model.outline = false;
+                        }
+                    }
                     self.selections.entitys.clearRetainingCapacity();
                     self.selections.positions.clearRetainingCapacity();
-
-                    try self.addEntitySelection(ecs_engine, raycast_result.body);
-                    try self.selections.positions.append(self.allocator, raycast_result.position);
                 }
-            } else {
-                self.selections.entitys.clearRetainingCapacity();
-                self.selections.positions.clearRetainingCapacity();
             }
         }
     }
@@ -289,13 +348,19 @@ pub fn addEntitySelection(self: *Self, ecs_engine: *Ecs, entity: EntityPointer) 
     set: {
         for (self.selections.entitys.items, 0..) |list_entity, i| {
             if (list_entity.eql(entity)) {
-                if (i + 1 == self.selections.entitys.items.len) break :set;
-
                 _ = self.selections.entitys.swapRemove(i);
-                self.selections.entitys.appendAssumeCapacity(entity);
+                if (ecs_engine.entityHas(entity, Model)) {
+                    const model: *Model = ecs_engine.getEntityComponent(entity, Model) catch unreachable;
+                    model.outline = false;
+                }
 
                 break :set;
             }
+        }
+
+        if (ecs_engine.entityHas(entity, Model)) {
+            const model: *Model = ecs_engine.getEntityComponent(entity, Model) catch unreachable;
+            model.outline = true;
         }
 
         try self.selections.entitys.append(self.allocator, entity);

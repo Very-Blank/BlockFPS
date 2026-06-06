@@ -1,4 +1,5 @@
 const ecs = @import("ecs");
+const math = @import("math");
 
 const Model = @import("components/model.zig").Model;
 const Position = @import("components/position.zig").Position;
@@ -17,11 +18,14 @@ pub const Ecs = ecs.Ecs(
         ecs.Template{ .components = &.{ Position, Scale, Rotation, Model, Collider, Rigidbody } },
         ecs.Template{ .components = &.{ Position, Scale, Rotation, Model, Collider } },
         ecs.Template{ .components = &.{ Position, Scale, Rotation, Model } },
+
+        //
+        ecs.Template{ .components = &.{ math.AxisType, Position, Scale, Rotation, Model, Collider } },
         //
         ecs.Template{ .components = &.{ Bullet, Position, Scale, Rotation, Model, Collider, Rigidbody } }, // NOTE: Bullet
         ecs.Template{ .components = &.{ Enemy, Health, Position, Scale, Rotation, Model, Collider, Rigidbody, Grounded } }, // NOTE: Enemy
         ecs.Template{ .components = &.{ Health, Position, Collider, Rigidbody, Grounded, Camera } }, // NOTE: Player
         ecs.Template{ .components = &.{ Position, Camera } }, // NOTE: Cam
     },
-    &.{.{ .name = "parent", .T = Position, .mode = .none, .requirments = .{ .components = &.{Position} } }},
+    &.{.{ .name = "parent", .T = Position, .mode = .destination, .requirments = .{ .components = &.{Position} } }},
 );

@@ -74,6 +74,62 @@ pub fn main(init: std.process.Init) !void {
 
     const target = ecs_engine.createSingleton(.{ .components = &.{ Position, Collider } });
 
+    const up = ecs_engine.createEntity(.{
+        math.AxisType.y,
+        Position{ .y = 1.25, .x = 0, .z = 0 },
+        Scale{ .y = 1.5, .x = 0.2, .z = 0.2 },
+        Rotation.identity,
+        Collider{
+            .type = .{ .box = .{ .y = 1.5, .x = 0.2, .z = 0.2 } },
+            .layer = .debug,
+            .mask = .none,
+        },
+        Model{},
+    }, &.{});
+
+    // ecs.Template{ .components = &.{ math.AxisType, Position, Scale, Rotation, Model } },
+    const right = ecs_engine.createEntity(.{
+        math.AxisType.x,
+        Position.zero,
+        Scale{ .x = 1.5, .y = 0.2, .z = 0.2 },
+        Rotation.identity,
+        Collider{
+            .type = .{ .box = .{ .x = 1.5, .y = 0.2, .z = 0.2 } },
+            .layer = .debug,
+            .mask = .none,
+        },
+        Model{},
+    }, &.{});
+
+    const forward = ecs_engine.createEntity(.{
+        math.AxisType.z,
+        Position.zero,
+        Scale{ .z = 1.5, .x = 0.2, .y = 0.2 },
+        Rotation.identity,
+        Collider{
+            .type = .{ .box = .{ .z = 1.5, .x = 0.2, .y = 0.2 } },
+            .layer = .debug,
+            .mask = .none,
+        },
+        Model{},
+    }, &.{});
+
+    const center = ecs_engine.createEntity(.{
+        Position{ .z = 0.0, .x = 0, .y = 0.0 },
+        Scale{ .z = 0.2, .x = 0.2, .y = 0.2 },
+        Rotation.identity,
+        Collider{
+            .type = .{ .box = .{ .x = 0.1, .y = 0.1, .z = 0.1 } },
+            .layer = .debug,
+            .mask = .none,
+        },
+        Model{},
+    }, &.{});
+
+    ecs_engine.createLink("parent", center, right, Position{ .x = 1.25, .y = 0, .z = 0 }) catch unreachable;
+    ecs_engine.createLink("parent", center, up, Position{ .y = 1.25, .x = 0, .z = 0 }) catch unreachable;
+    ecs_engine.createLink("parent", center, forward, Position{ .z = 1.25, .x = 0, .y = 0 }) catch unreachable;
+
     var physics: Physics = .init(gpa);
     defer physics.deinit();
 
@@ -138,7 +194,7 @@ pub fn main(init: std.process.Init) !void {
 
         if (window.input.getKeyState(.escape) == .justPressed) {
             if (debug_gui.state.isOpen()) {
-                debug_gui.close();
+                debug_gui.close(&ecs_engine);
             } else {
                 ignore_input = true;
                 window.setMouseMode(.captured);
@@ -149,7 +205,6 @@ pub fn main(init: std.process.Init) !void {
         if (debug_gui.state == .just_closed) {
             ignore_input = false;
             window.setMouseMode(.disabled);
-            // ecs_engine.clearSingletonsEntity(debug_gui.selections.singleton);
         }
 
         if (!debug_gui.state.isOpen()) {
@@ -384,7 +439,7 @@ pub fn handlePlayerInput(ecs_engine: *Ecs, window: *Window, player_singleton: Si
                 position.add(forward).add(Position{ .y = camera.offset }),
                 Scale{ .x = 0.1, .y = 0.1, .z = 0.1 },
                 Rotation.identity,
-                Model.cube,
+                Model{},
                 Collider{ .type = .{ .sphere = .{ .radius = 0.5 } } },
                 Rigidbody{ .velocity = forward.scale(50.0), .gravity = 0.0, .restitution = 0.0, .mass = 0.1 },
             }, &.{});
@@ -403,7 +458,7 @@ pub fn makeArena(ecs_engine: *Ecs, size: f32) void {
         Position{ .y = -0.5 },
         Scale{ .x = size, .y = 0.5, .z = size },
         Rotation.identity,
-        Model.cube,
+        Model{},
         Collider{ .type = .{ .box = .{ .x = size, .y = 0.5, .z = size } } },
     }, &.{});
 
@@ -411,7 +466,7 @@ pub fn makeArena(ecs_engine: *Ecs, size: f32) void {
         Position{ .x = 0, .y = wall_height / 2.0 - 0.5, .z = -wall_offset },
         Scale{ .x = size, .y = wall_height, .z = wall_thickness },
         Rotation.identity,
-        Model.cube,
+        Model{},
         Collider{ .type = .{ .box = .{ .x = size, .y = wall_height, .z = wall_thickness } } },
     }, &.{});
 
@@ -419,7 +474,7 @@ pub fn makeArena(ecs_engine: *Ecs, size: f32) void {
         Position{ .x = 0, .y = wall_height / 2.0 - 0.5, .z = wall_offset },
         Scale{ .x = size, .y = wall_height, .z = wall_thickness },
         Rotation.identity,
-        Model.cube,
+        Model{},
         Collider{ .type = .{ .box = .{ .x = size, .y = wall_height, .z = wall_thickness } } },
     }, &.{});
 
@@ -427,7 +482,7 @@ pub fn makeArena(ecs_engine: *Ecs, size: f32) void {
         Position{ .x = -wall_offset, .y = wall_height / 2.0 - 0.5, .z = 0 },
         Scale{ .x = wall_thickness, .y = wall_height, .z = size },
         Rotation.identity,
-        Model.cube,
+        Model{},
         Collider{ .type = .{ .box = .{ .x = wall_thickness, .y = wall_height, .z = size } } },
     }, &.{});
 
@@ -435,7 +490,7 @@ pub fn makeArena(ecs_engine: *Ecs, size: f32) void {
         Position{ .x = wall_offset, .y = wall_height / 2.0 - 0.5, .z = 0 },
         Scale{ .x = wall_thickness, .y = wall_height, .z = size },
         Rotation.identity,
-        Model.cube,
+        Model{},
         Collider{ .type = .{ .box = .{ .x = wall_thickness, .y = wall_height, .z = size } } },
     }, &.{});
 
@@ -443,7 +498,7 @@ pub fn makeArena(ecs_engine: *Ecs, size: f32) void {
         Position{ .x = 10, .y = wall_height / 2.0 - 0.5, .z = 8 },
         Scale{ .x = wall_thickness, .y = wall_height, .z = 10 },
         Rotation.identity,
-        Model.cube,
+        Model{},
         Collider{ .type = .{ .box = .{ .x = wall_thickness, .y = 3.0, .z = 10 } } },
     }, &.{});
 
@@ -451,7 +506,7 @@ pub fn makeArena(ecs_engine: *Ecs, size: f32) void {
         Position{ .y = 2.5 },
         Scale.one,
         Rotation.identity,
-        Model.cube,
+        Model{},
         Collider{ .type = .{ .box = .one } },
         Rigidbody{ .velocity = .{ .y = -0.5 }, .restitution = 0.5, .mass = 10.0 },
     }, &.{});
@@ -460,7 +515,7 @@ pub fn makeArena(ecs_engine: *Ecs, size: f32) void {
         Position.zero,
         Scale.one,
         Rotation.identity,
-        Model.cube,
+        Model{},
         Collider{ .type = .{ .box = .one } },
         Rigidbody{ .restitution = 0.5, .mass = 10.0 },
     }, &.{});
@@ -506,56 +561,56 @@ pub fn makeArena(ecs_engine: *Ecs, size: f32) void {
     //     Position{ .y = 1.5, .z = 3 },
     //     Scale{ .x = 1.0, .y = 2.0, .z = 1.0 },
     //     Rotation.identity,
-    //     Model.cube,
+    //     Model{},
     //     Collider{ .type = .{ .capsule = .{ .radius = 0.5, .half_height = 1 } }, .layer = .enemy },
     //     Rigidbody{ .restitution = 0.0, .mass = 5.0 },
     //     Grounded{ .grounded = false },
     // }, &.{});
     //
-    _ = ecs_engine.createEntity(.{
-        Enemy{
-            .state = .patrol,
-            .vision = .{
-                .memory = .init(5.0, .finished),
-                .distance = 30.0,
-                .angle = std.math.pi / 2.0,
-            },
-            .follow = .{ .accuracy = 0.3, .distance = 6.0, .speed = 4.5 },
-            .patrol = .{
-                .path = .{
-                    .waypoints = .{
-                        .{ .x = 0, .y = 1, .z = 9 },
-                        .{ .x = 8, .y = 1, .z = -4 },
-                        .{ .x = -8, .y = 1, .z = -8 },
-                        .{ .x = 5, .y = 1, .z = -8 },
-                    },
-                },
-                .wait = .init(1.5, .running),
-                .accuracy = 0.5,
-                .speed = 2.0,
-            },
-            .attack = .{
-                .range = 20.0,
-                .move = .{
-                    .speed = 7.0,
-                    .distance = .{ .current = 5.0, .min = 4.0, .max = 15.0, .change = .init(1.5, .finished) },
-                },
-                .weapon = .{
-                    .type = .{ .burst = .{ .length = .init(0.5, .running), .rpm = .init(0.1, .running) } },
-                    .cooldown = .init(1.5, .running),
-                    .bullet = .{ .speed = 50.0, .damage = 0.0 },
-                },
-                .jump = .{ .force = 6.0, .cooldown = .init(4.0, .running) },
-                .strafe = .{ .speed = 10.0, .change = .init(1.2, .running) },
-            },
-        },
-        Health{ .current = 50.0, .max = 50.0 },
-        Position{ .y = 1.5, .z = 5, .x = 5 },
-        Scale{ .x = 1.0, .y = 2.0, .z = 1.0 },
-        Rotation.identity,
-        Model.cube,
-        Collider{ .type = .{ .capsule = .{ .radius = 0.5, .half_height = 1 } }, .layer = .enemy },
-        Rigidbody{ .restitution = 0.0, .mass = 5.0 },
-        Grounded{ .grounded = false },
-    }, &.{});
+    // _ = ecs_engine.createEntity(.{
+    //     Enemy{
+    //         .state = .patrol,
+    //         .vision = .{
+    //             .memory = .init(5.0, .finished),
+    //             .distance = 30.0,
+    //             .angle = std.math.pi / 2.0,
+    //         },
+    //         .follow = .{ .accuracy = 0.3, .distance = 6.0, .speed = 4.5 },
+    //         .patrol = .{
+    //             .path = .{
+    //                 .waypoints = .{
+    //                     .{ .x = 0, .y = 1, .z = 9 },
+    //                     .{ .x = 8, .y = 1, .z = -4 },
+    //                     .{ .x = -8, .y = 1, .z = -8 },
+    //                     .{ .x = 5, .y = 1, .z = -8 },
+    //                 },
+    //             },
+    //             .wait = .init(1.5, .running),
+    //             .accuracy = 0.5,
+    //             .speed = 2.0,
+    //         },
+    //         .attack = .{
+    //             .range = 20.0,
+    //             .move = .{
+    //                 .speed = 7.0,
+    //                 .distance = .{ .current = 5.0, .min = 4.0, .max = 15.0, .change = .init(1.5, .finished) },
+    //             },
+    //             .weapon = .{
+    //                 .type = .{ .burst = .{ .length = .init(0.5, .running), .rpm = .init(0.1, .running) } },
+    //                 .cooldown = .init(1.5, .running),
+    //                 .bullet = .{ .speed = 50.0, .damage = 0.0 },
+    //             },
+    //             .jump = .{ .force = 6.0, .cooldown = .init(4.0, .running) },
+    //             .strafe = .{ .speed = 10.0, .change = .init(1.2, .running) },
+    //         },
+    //     },
+    //     Health{ .current = 50.0, .max = 50.0 },
+    //     Position{ .y = 1.5, .z = 5, .x = 5 },
+    //     Scale{ .x = 1.0, .y = 2.0, .z = 1.0 },
+    //     Rotation.identity,
+    //     Model{},
+    //     Collider{ .type = .{ .capsule = .{ .radius = 0.5, .half_height = 1 } }, .layer = .enemy },
+    //     Rigidbody{ .restitution = 0.0, .mass = 5.0 },
+    //     Grounded{ .grounded = false },
+    // }, &.{});
 }
