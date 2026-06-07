@@ -39,11 +39,24 @@ const Tools = struct {
     inspector: inspector.Inspector = inspector.init,
 };
 
+const tool_fields = @typeInfo(Tools).@"struct".fields;
+
+const inspected = .{
+    .{ .name = "position", .type = Position },
+    .{ .name = "rotation", .type = Rotation },
+    .{ .name = "scale", .type = Scale },
+    .{ .name = "model", .type = Model },
+    .{ .name = "collider", .type = Collider },
+    .{ .name = "rigidbody", .type = Rigidbody },
+    .{ .name = "grounded", .type = Grounded },
+    .{ .name = "health", .type = Health },
+};
+
 io: *imgui.struct_ImGuiIO_t,
 context: *imgui.ImGuiContext,
 launcher: launch.Launcher = launch.init,
 tools: Tools = .{},
-open_states: [@typeInfo(Tools).@"struct".fields.len]bool = .{false} ** @typeInfo(Tools).@"struct".fields.len,
+open_states: [tool_fields.len]bool = .{false} ** tool_fields.len,
 selections: struct {
     positions: std.ArrayList(Vector3),
     entitys: std.ArrayList(EntityPointer),
@@ -75,6 +88,7 @@ state: enum {
     }
 } = .closed,
 allocator: std.mem.Allocator,
+drag: ?math.AxisType = null,
 
 const Self = @This();
 
@@ -95,6 +109,13 @@ pub fn init(window: Window, allocator: std.mem.Allocator) Self {
     _ = imgui.cImGui_ImplOpenGL3_Init();
 
     new_imgui.io = imgui.ImGui_GetIO();
+    _ = imgui.ImFontAtlas_AddFontFromFileTTF(
+        new_imgui.io.*.Fonts,
+        "fonts/RobotoMono-Regular.ttf",
+        16.0,
+        null,
+        null,
+    );
 
     return new_imgui;
 }
@@ -114,7 +135,7 @@ pub fn deinit(self: *Self) void {
 pub fn open(self: *Self) void {
     self.launcher.open = true;
 
-    inline for (@typeInfo(@FieldType(Self, "tools")).@"struct".fields, 0..) |field, i| {
+    inline for (tool_fields, 0..) |field, i| {
         @field(self.tools, field.name).open = self.open_states[i];
     }
 
@@ -128,17 +149,10 @@ pub fn close(self: *Self, ecs_engine: *Ecs) void {
         @field(self.tools.inspector.data, field.name).has = false;
     }
 
-    for (self.selections.entitys.items) |entity| {
-        if (ecs_engine.entityIsValid(entity) and ecs_engine.entityHas(entity, Model)) {
-            const model: *Model = ecs_engine.getEntityComponent(entity, Model) catch unreachable;
-            model.outline = false;
-        }
-    }
+    self.clearEntitySelections(ecs_engine);
+    self.clearPositionSelections();
 
-    self.selections.entitys.clearRetainingCapacity();
-    self.selections.positions.clearRetainingCapacity();
-
-    inline for (@typeInfo(@FieldType(Self, "tools")).@"struct".fields, 0..) |field, i| {
+    inline for (tool_fields, 0..) |field, i| {
         self.open_states[i] = @field(self.tools, field.name).open;
         @field(self.tools, field.name).open = false;
     }
@@ -146,16 +160,24 @@ pub fn close(self: *Self, ecs_engine: *Ecs) void {
     self.state.update(false);
 }
 
-const inspected = .{
-    .{ .name = "position", .type = Position },
-    .{ .name = "rotation", .type = Rotation },
-    .{ .name = "scale", .type = Scale },
-    .{ .name = "model", .type = Model },
-    .{ .name = "collider", .type = Collider },
-    .{ .name = "rigidbody", .type = Rigidbody },
-    .{ .name = "grounded", .type = Grounded },
-    .{ .name = "health", .type = Health },
-};
+pub fn clearEntitySelections(self: *Self, ecs_engine: *Ecs) void {
+    self.setEntityOutlines(ecs_engine, false);
+    self.selections.entitys.clearRetainingCapacity();
+}
+
+pub fn clearPositionSelections(self: *Self) void {
+    self.selections.positions.clearRetainingCapacity();
+}
+
+pub fn setEntityOutlines(self: *Self, ecs_engine: *Ecs, outline: bool) void {
+    for (self.selections.entitys.items) |entity| {
+        if (ecs_engine.entityIsValid(entity) and ecs_engine.entityHas(entity, Model)) {
+            const model: *Model = ecs_engine.getEntityComponent(entity, Model) catch unreachable;
+            model.outline = outline;
+        }
+    }
+}
+
 // Returns true if any of the debug windows are open.
 pub fn update(
     self: *Self,
@@ -171,16 +193,20 @@ pub fn update(
         self.tools.editor.open = true;
     }
 
-    var i: usize = 0;
-    while (i < self.selections.entitys.items.len) {
-        if (!ecs_engine.entityIsValid(self.selections.entitys.items[i])) {
-            _ = self.selections.entitys.orderedRemove(i);
-
-            if (i == self.selections.entitys.items.len and 0 < self.selections.entitys.items.len) {
-                self.syncInspector(ecs_engine, self.selections.entitys.items[self.selections.entitys.items.len - 1]);
+    {
+        var sync: bool = false;
+        var i: usize = 0;
+        while (i < self.selections.entitys.items.len) {
+            if (!ecs_engine.entityIsValid(self.selections.entitys.items[i])) {
+                _ = self.selections.entitys.orderedRemove(i);
+                sync = true;
+            } else {
+                i += 1;
             }
-        } else {
-            i += 1;
+        }
+
+        if (sync) {
+            self.syncInspector(ecs_engine, true);
         }
     }
 
@@ -229,83 +255,85 @@ pub fn update(
                 if (hit) |raycast_result| {
                     if (ecs_engine.entityHas(raycast_result.body, math.AxisType)) {
                         const axis = ecs_engine.getEntityComponent(raycast_result.body, math.AxisType) catch unreachable;
-                        switch (axis.*) {
-                            .x => {
-                                for (self.selections.entitys.items) |entity| {
-                                    const pos: *Position = ecs_engine.getEntityComponent(entity, Position) catch unreachable;
-                                    pos.* = pos.add(Position.right);
-                                }
-                            },
-                            .y => {
-                                for (self.selections.entitys.items) |entity| {
-                                    const pos: *Position = ecs_engine.getEntityComponent(entity, Position) catch unreachable;
-                                    pos.* = pos.add(Position.up);
-                                }
-                            },
-                            .z => {
-                                for (self.selections.entitys.items) |entity| {
-                                    const pos: *Position = ecs_engine.getEntityComponent(entity, Position) catch unreachable;
-                                    pos.* = pos.add(Position.forward);
-                                }
-                            },
-                        }
-
-                        self.syncInspector(ecs_engine, self.selections.entitys.items[self.selections.entitys.items.len - 1]);
-
+                        self.drag = axis.*;
                         break :something;
                     }
 
                     if (window.input.getKeyState(.left_control).isDown()) {
-                        self.selections.positions.clearRetainingCapacity();
+                        self.clearPositionSelections();
 
-                        try self.addEntitySelection(ecs_engine, raycast_result.body);
-                    } else if (window.input.getKeyState(.left_shift).isDown()) {
-                        for (self.selections.entitys.items) |entity| {
-                            if (ecs_engine.entityHas(entity, Model)) {
-                                const model: *Model = ecs_engine.getEntityComponent(entity, Model) catch unreachable;
-                                model.outline = false;
+                        set: {
+                            for (self.selections.entitys.items, 0..) |list_entity, i| {
+                                if (list_entity.eql(raycast_result.body)) {
+                                    _ = self.selections.entitys.orderedRemove(i);
+                                    if (ecs_engine.entityHas(raycast_result.body, Model)) {
+                                        const model: *Model = ecs_engine.getEntityComponent(raycast_result.body, Model) catch unreachable;
+                                        model.outline = false;
+                                    }
+
+                                    break :set;
+                                }
                             }
-                        }
-                        self.selections.entitys.clearRetainingCapacity();
 
+                            if (ecs_engine.entityHas(raycast_result.body, Model)) {
+                                const model: *Model = ecs_engine.getEntityComponent(raycast_result.body, Model) catch unreachable;
+                                model.outline = true;
+                            }
+
+                            try self.selections.entitys.append(self.allocator, raycast_result.body);
+                        }
+
+                        self.syncInspector(ecs_engine, true);
+                    } else if (window.input.getKeyState(.left_shift).isDown()) {
+                        self.clearEntitySelections(ecs_engine);
                         try self.selections.positions.append(self.allocator, raycast_result.position.coerce(Vector3));
                     } else {
-                        for (self.selections.entitys.items) |entity| {
-                            if (ecs_engine.entityHas(entity, Model)) {
-                                const model: *Model = ecs_engine.getEntityComponent(entity, Model) catch unreachable;
-                                model.outline = false;
-                            }
-                        }
-                        self.selections.entitys.clearRetainingCapacity();
-                        self.selections.positions.clearRetainingCapacity();
-
-                        try self.addEntitySelection(ecs_engine, raycast_result.body);
-                        try self.selections.positions.append(self.allocator, raycast_result.position);
+                        self.clearEntitySelections(ecs_engine);
+                        self.clearPositionSelections();
                     }
                 } else {
-                    for (self.selections.entitys.items) |entity| {
-                        if (ecs_engine.entityHas(entity, Model)) {
-                            const model: *Model = ecs_engine.getEntityComponent(entity, Model) catch unreachable;
-                            model.outline = false;
-                        }
-                    }
-                    self.selections.entitys.clearRetainingCapacity();
-                    self.selections.positions.clearRetainingCapacity();
+                    self.clearEntitySelections(ecs_engine);
+                    self.clearPositionSelections();
                 }
             }
         }
     }
 
-    if (0 < self.selections.entitys.items.len) {
-        const current_selected = self.selections.entitys.items[self.selections.entitys.items.len - 1];
-        self.setInspectorValues(ecs_engine, current_selected);
+    if (window.input.mouse_state.left_click.isDown()) {
+        if (self.drag) |axis| {
+            switch (axis) {
+                .x => {
+                    for (self.selections.entitys.items) |entity| {
+                        const pos: *Position = ecs_engine.getEntityComponent(entity, Position) catch unreachable;
+                        pos.* = pos.add(Position.right.scale(window.input.mouse_state.motion.x * 0.01));
+                    }
+                },
+                .y => {
+                    for (self.selections.entitys.items) |entity| {
+                        const pos: *Position = ecs_engine.getEntityComponent(entity, Position) catch unreachable;
+                        pos.* = pos.add(Position.up.scale(window.input.mouse_state.motion.y * -0.01));
+                    }
+                },
+                .z => {
+                    for (self.selections.entitys.items) |entity| {
+                        const pos: *Position = ecs_engine.getEntityComponent(entity, Position) catch unreachable;
+                        pos.* = pos.add(Position.forward.scale(window.input.mouse_state.motion.x * 0.01));
+                    }
+                },
+            }
+            self.syncInspector(ecs_engine, true);
+        }
+    } else if (window.input.mouse_state.left_click == .justReleased) {
+        self.drag = null;
     }
+
+    self.syncInspector(ecs_engine, false);
 
     self.newFrame();
 
     self.launcher.draw();
 
-    inline for (@typeInfo(@FieldType(Self, "tools")).@"struct".fields) |field| {
+    inline for (tool_fields) |field| {
         @field(self.tools, field.name).draw();
     }
 
@@ -313,7 +341,7 @@ pub fn update(
     endFrame();
 
     const is_open: bool = init: {
-        inline for (@typeInfo(@FieldType(Self, "tools")).@"struct".fields) |field| {
+        inline for (tool_fields) |field| {
             if (@field(self.tools, field.name).open) break :init true;
         }
 
@@ -323,50 +351,23 @@ pub fn update(
     self.state.update(is_open);
 }
 
-pub fn setInspectorValues(self: *Self, ecs_engine: *Ecs, entity: EntityPointer) void {
-    inline for (inspected) |field| {
-        if (ecs_engine.entityHas(entity, field.type)) {
-            const component = ecs_engine.getEntityComponent(entity, field.type) catch unreachable;
-            component.* = @field(self.tools.inspector.data, field.name).value;
-        }
-    }
-}
+pub fn syncInspector(self: *Self, ecs_engine: *Ecs, copy: bool) void {
+    const entity = if (0 < self.selections.entitys.items.len) self.selections.entitys.getLast() else return;
 
-pub fn syncInspector(self: *Self, ecs_engine: *Ecs, entity: EntityPointer) void {
     inline for (inspected) |field| {
         if (ecs_engine.entityHas(entity, field.type)) {
             const component = ecs_engine.getEntityComponent(entity, field.type) catch unreachable;
-            @field(self.tools.inspector.data, field.name).value = component.*;
+            if (copy) {
+                @field(self.tools.inspector.data, field.name).value = component.*;
+            } else {
+                component.* = @field(self.tools.inspector.data, field.name).value;
+            }
+
             @field(self.tools.inspector.data, field.name).has = true;
         } else {
             @field(self.tools.inspector.data, field.name).has = false;
         }
     }
-}
-
-pub fn addEntitySelection(self: *Self, ecs_engine: *Ecs, entity: EntityPointer) !void {
-    set: {
-        for (self.selections.entitys.items, 0..) |list_entity, i| {
-            if (list_entity.eql(entity)) {
-                _ = self.selections.entitys.swapRemove(i);
-                if (ecs_engine.entityHas(entity, Model)) {
-                    const model: *Model = ecs_engine.getEntityComponent(entity, Model) catch unreachable;
-                    model.outline = false;
-                }
-
-                break :set;
-            }
-        }
-
-        if (ecs_engine.entityHas(entity, Model)) {
-            const model: *Model = ecs_engine.getEntityComponent(entity, Model) catch unreachable;
-            model.outline = true;
-        }
-
-        try self.selections.entitys.append(self.allocator, entity);
-    }
-
-    self.syncInspector(ecs_engine, entity);
 }
 
 pub fn setStyle(_: *Self, style: enum { dark, light, classic }) void {
