@@ -45,8 +45,8 @@
             .hash = "ECS-0.0.0-llhprZlCAQARGUtbXxyyfWptN2ojUiVLUjx1Cno63iVM",
         },
         .cimgui_zig = .{
-            .url = "git+https://github.com/Very-Blank/cimgui.zig.git#47e295706df43051d98d7f2df4c24cc16cbebfe5",
-            .hash = "cimgui_zig-1.0.0-2XubkgjPwQDQQUOMqwKHPtPTrcPmGS4Z8b_WJeWUNjeO",
+            .url = "git+https://github.com/tiawl/cimgui.zig.git#6236ef65bcb28dce7c85551ff666c6a05958ce70",
+            .hash = "cimgui_zig-1.0.0-2Xubko0ywgAapZ7NuD-boXc-ilbB5pSk77zwZmQ3va2o",
         },
     },
     .paths = .{

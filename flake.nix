@@ -43,7 +43,7 @@
             "git+https://github.com/tiawl/glfw.zig.git"
             "git+https://github.com/Very-Blank/ZigMath.git"
             "git+https://github.com/Very-Blank/Ecs.git"
-            "git+https://github.com/Very-Blank/cimgui.zig.git"
+            "git+https://github.com/tiawl/cimgui.zig.git"
           ]);
       };
 
