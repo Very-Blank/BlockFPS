@@ -385,6 +385,7 @@ pub fn newFrame(self: *const Self) void {
     imgui.cImGui_ImplOpenGL3_NewFrame();
     imgui.cImGui_ImplGlfw_NewFrame();
     imgui.ImGui_NewFrame();
+    imgui.ImGuizmo_BeginFrame();
 }
 
 // Ends the Dear ImGui frame. automatically called by Render(). If you don't need to render data (skipping rendering) you may call EndFrame() without Render()
