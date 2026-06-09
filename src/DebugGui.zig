@@ -88,7 +88,6 @@ state: enum {
     }
 } = .closed,
 allocator: std.mem.Allocator,
-drag: ?math.AxisType = null,
 
 const Self = @This();
 
@@ -108,12 +107,23 @@ pub fn init(window: Window, allocator: std.mem.Allocator) Self {
     _ = imgui.cImGui_ImplGlfw_InitForOpenGL(@ptrCast(window.ptr), true);
     _ = imgui.cImGui_ImplOpenGL3_Init();
 
+    //#include "IconsFontAwesome.h"
+    // ImGuiIO& io = ImGui::GetIO();
+    // io.Fonts->AddFontDefaultVector();
+    // ImFontConfig config;
+    // config.MergeMode = true;
+    // config.GlyphMinAdvanceX = 13.0f; // Use if you want to make the icon monospaced
+    // io.Fonts->AddFontFromFileTTF("fonts/fontawesome-webfont.ttf", 13.0f, &config);
+
     new_imgui.io = imgui.ImGui_GetIO();
+    var config: imgui.ImFontConfig = .{};
+    config.GlyphMinAdvanceX = 18.0;
+
     _ = imgui.ImFontAtlas_AddFontFromFileTTF(
         new_imgui.io.*.Fonts,
-        "fonts/RobotoMono-Regular.ttf",
-        16.0,
-        null,
+        "fonts/0xProtoNerdFontMono-Regular.ttf",
+        18.0,
+        &config,
         null,
     );
 
@@ -186,10 +196,12 @@ pub fn update(
     main_camera_singleton: SingletonType,
 ) !void {
     if (self.launcher.data.tools.inspector) {
+        self.launcher.data.tools.inspector = false;
         self.tools.inspector.open = true;
     }
 
     if (self.launcher.data.tools.editor) {
+        self.launcher.data.tools.editor = false;
         self.tools.editor.open = true;
     }
 
@@ -215,7 +227,7 @@ pub fn update(
             const camera = ecs_engine.getEntityComponent(id, Camera) catch unreachable;
             const position = ecs_engine.getEntityComponent(id, Position) catch unreachable;
 
-            const view_matrix = math.f32.Mat4.initView(
+            const view_matrix = Mat4.initView(
                 position.add(Position{ .y = camera.offset }).negate(),
                 math.f32.Quaternion.initCamRotation(-camera.rotation.yaw, -camera.rotation.pitch),
             );
@@ -251,85 +263,100 @@ pub fn update(
                 Mask.all.remove(&.{.player}),
             );
 
-            something: {
-                if (hit) |raycast_result| {
-                    if (ecs_engine.entityHas(raycast_result.body, math.AxisType)) {
-                        const axis = ecs_engine.getEntityComponent(raycast_result.body, math.AxisType) catch unreachable;
-                        self.drag = axis.*;
-                        break :something;
-                    }
+            if (hit) |raycast_result| {
+                if (window.input.getKeyState(.left_control).isDown()) {
+                    self.clearPositionSelections();
 
-                    if (window.input.getKeyState(.left_control).isDown()) {
-                        self.clearPositionSelections();
-
-                        set: {
-                            for (self.selections.entitys.items, 0..) |list_entity, i| {
-                                if (list_entity.eql(raycast_result.body)) {
-                                    _ = self.selections.entitys.orderedRemove(i);
-                                    if (ecs_engine.entityHas(raycast_result.body, Model)) {
-                                        const model: *Model = ecs_engine.getEntityComponent(raycast_result.body, Model) catch unreachable;
-                                        model.outline = false;
-                                    }
-
-                                    break :set;
+                    set: {
+                        for (self.selections.entitys.items, 0..) |list_entity, i| {
+                            if (list_entity.eql(raycast_result.body)) {
+                                _ = self.selections.entitys.orderedRemove(i);
+                                if (ecs_engine.entityHas(raycast_result.body, Model)) {
+                                    const model: *Model = ecs_engine.getEntityComponent(raycast_result.body, Model) catch unreachable;
+                                    model.outline = false;
                                 }
-                            }
 
-                            if (ecs_engine.entityHas(raycast_result.body, Model)) {
-                                const model: *Model = ecs_engine.getEntityComponent(raycast_result.body, Model) catch unreachable;
-                                model.outline = true;
+                                break :set;
                             }
-
-                            try self.selections.entitys.append(self.allocator, raycast_result.body);
                         }
 
-                        self.syncInspector(ecs_engine, true);
-                    } else if (window.input.getKeyState(.left_shift).isDown()) {
-                        self.clearEntitySelections(ecs_engine);
-                        try self.selections.positions.append(self.allocator, raycast_result.position.coerce(Vector3));
-                    } else {
-                        self.clearEntitySelections(ecs_engine);
-                        self.clearPositionSelections();
+                        if (ecs_engine.entityHas(raycast_result.body, Model)) {
+                            const model: *Model = ecs_engine.getEntityComponent(raycast_result.body, Model) catch unreachable;
+                            model.outline = true;
+                        }
+
+                        try self.selections.entitys.append(self.allocator, raycast_result.body);
                     }
+
+                    self.syncInspector(ecs_engine, true);
+                } else if (window.input.getKeyState(.left_shift).isDown()) {
+                    self.clearEntitySelections(ecs_engine);
+                    try self.selections.positions.append(self.allocator, raycast_result.position.coerce(Vector3));
                 } else {
                     self.clearEntitySelections(ecs_engine);
                     self.clearPositionSelections();
                 }
+            } else {
+                self.clearEntitySelections(ecs_engine);
+                self.clearPositionSelections();
             }
         }
     }
-
-    if (window.input.mouse_state.left_click.isDown()) {
-        if (self.drag) |axis| {
-            switch (axis) {
-                .x => {
-                    for (self.selections.entitys.items) |entity| {
-                        const pos: *Position = ecs_engine.getEntityComponent(entity, Position) catch unreachable;
-                        pos.* = pos.add(Position.right.scale(window.input.mouse_state.motion.x * 0.01));
-                    }
-                },
-                .y => {
-                    for (self.selections.entitys.items) |entity| {
-                        const pos: *Position = ecs_engine.getEntityComponent(entity, Position) catch unreachable;
-                        pos.* = pos.add(Position.up.scale(window.input.mouse_state.motion.y * -0.01));
-                    }
-                },
-                .z => {
-                    for (self.selections.entitys.items) |entity| {
-                        const pos: *Position = ecs_engine.getEntityComponent(entity, Position) catch unreachable;
-                        pos.* = pos.add(Position.forward.scale(window.input.mouse_state.motion.x * 0.01));
-                    }
-                },
-            }
-            self.syncInspector(ecs_engine, true);
-        }
-    } else if (window.input.mouse_state.left_click == .justReleased) {
-        self.drag = null;
-    }
-
     self.syncInspector(ecs_engine, false);
 
     self.newFrame();
+
+    // GIZMO
+    if (self.selections.entitys.items.len > 0) {
+        var average_position: Position = .zero;
+        for (self.selections.entitys.items) |entity| {
+            const position = ecs_engine.getEntityComponent(entity, Position) catch unreachable;
+            average_position = average_position.add(position.*);
+        }
+
+        average_position = average_position.segment(@floatFromInt(self.selections.entitys.items.len));
+
+        if (ecs_engine.getSingletonsEntity(main_camera_singleton)) |id| {
+            const camera = ecs_engine.getEntityComponent(id, Camera) catch unreachable;
+            const position = ecs_engine.getEntityComponent(id, Position) catch unreachable;
+
+            const view_matrix = Mat4.initView(
+                position.add(Position{ .y = camera.offset }).negate(),
+                math.f32.Quaternion.initCamRotation(-camera.rotation.yaw, -camera.rotation.pitch),
+            );
+            const projection_matrix = camera.projection.mat;
+
+            var model_matrix = Mat4.initModel(average_position, Scale.one, Rotation.identity);
+
+            imgui.ImGuizmo_SetRect(0, 0, self.io.DisplaySize.x, self.io.DisplaySize.y);
+
+            _ = imgui.ImGuizmo_Manipulate(
+                &view_matrix.fields[0][0],
+                &projection_matrix.fields[0][0],
+                imgui.ROTATE,
+                imgui.WORLD,
+                &model_matrix.fields[0][0],
+            );
+
+            if (imgui.ImGuizmo_IsUsing()) {
+                var new_pos: Position = .zero;
+                var new_rot: Vector3 = .zero;
+                var new_scale: Scale = .zero;
+
+                imgui.ImGuizmo_DecomposeMatrixToComponents(&model_matrix.fields[0][0], &new_pos.x, &new_rot.x, &new_scale.x);
+
+                new_pos = new_pos;
+
+                for (self.selections.entitys.items) |entity| {
+                    const pos = ecs_engine.getEntityComponent(entity, Position) catch unreachable;
+                    pos.* = pos.add(new_pos.subtract(average_position));
+                }
+                // rot.* = .initFromVector(new_rot.scale(std.math.pi / 180.0));
+
+                self.syncInspector(ecs_engine, true);
+            }
+        }
+    }
 
     self.launcher.draw();
 

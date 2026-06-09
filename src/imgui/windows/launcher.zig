@@ -1,3 +1,4 @@
+const std = @import("std");
 const imgui = @import("imgui");
 const help = @import("../help.zig");
 const standards = @import("../standards.zig");
@@ -24,32 +25,56 @@ pub const init: Launcher = .{
     },
     .draw_fn = struct {
         pub fn draw(data: *LauncherData) void {
-            {
-                imgui.ImGui_Text("Tools");
-                imgui.ImGui_Indent();
-                defer imgui.ImGui_Unindent();
+            if (imgui.ImGui_BeginTable("split", 2, 0)) {
+                defer imgui.ImGui_EndTable();
 
-                data.tools.inspector = imgui.ImGui_Button("Inspector");
-                imgui.ImGui_SameLine();
-                data.tools.editor = imgui.ImGui_Button("Editor");
-            }
+                const button_size: f32 = 32.5;
 
-            imgui.ImGui_Separator();
+                imgui.ImGui_TableSetupColumn("Left", 0);
+                imgui.ImGui_TableSetupColumnEx("Right", imgui.ImGuiTableColumnFlags_WidthFixed, button_size, 0);
 
-            {
-                imgui.ImGui_Text("Game");
-                imgui.ImGui_Indent();
-                defer imgui.ImGui_Unindent();
+                if (imgui.ImGui_TableNextColumn()) {
+                    {
+                        imgui.ImGui_PushItemWidth(100);
+                        defer imgui.ImGui_PopItemWidth();
 
-                _ = imgui.ImGui_Checkbox("Freeze", &data.game.freeze);
+                        if (imgui.ImGui_BeginCombo("##tools", "Tools", 0)) {
+                            defer imgui.ImGui_EndCombo();
 
-                const Mode: type = @FieldType(@FieldType(LauncherData, "game"), "mode");
+                            if (imgui.ImGui_Selectable("Inspector")) {
+                                data.tools.inspector = true;
+                            }
 
-                imgui.ImGui_PushItemWidth(standards.width);
-                defer imgui.ImGui_PopItemWidth();
+                            if (imgui.ImGui_Selectable("Editor")) {
+                                data.tools.editor = true;
+                            }
+                        }
+                    }
 
-                imgui.ImGui_SameLine();
-                help.enumSelector(Mode, &data.game.mode, "Mode");
+                    imgui.ImGui_Separator();
+
+                    {
+                        imgui.ImGui_Text("Game");
+                        imgui.ImGui_Indent();
+                        defer imgui.ImGui_Unindent();
+
+                        _ = imgui.ImGui_Checkbox("Freeze", &data.game.freeze);
+
+                        imgui.ImGui_PushItemWidth(standards.width);
+                        defer imgui.ImGui_PopItemWidth();
+
+                        imgui.ImGui_SameLine();
+
+                        const Mode: type = @FieldType(@FieldType(LauncherData, "game"), "mode");
+                        help.enumSelector(Mode, &data.game.mode, "Mode");
+                    }
+                }
+
+                if (imgui.ImGui_TableNextColumn()) {
+                    _ = imgui.ImGui_ButtonEx(std.fmt.comptimePrint("{u}", .{''}), .{ .x = button_size, .y = button_size });
+                    _ = imgui.ImGui_ButtonEx(std.fmt.comptimePrint("{u}", .{''}), .{ .x = button_size, .y = button_size });
+                    _ = imgui.ImGui_ButtonEx(std.fmt.comptimePrint("{u}", .{'󰙖'}), .{ .x = button_size, .y = button_size });
+                }
             }
         }
     }.draw,
