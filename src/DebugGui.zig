@@ -107,25 +107,41 @@ pub fn init(window: Window, allocator: std.mem.Allocator) Self {
     _ = imgui.cImGui_ImplGlfw_InitForOpenGL(@ptrCast(window.ptr), true);
     _ = imgui.cImGui_ImplOpenGL3_Init();
 
-    //#include "IconsFontAwesome.h"
-    // ImGuiIO& io = ImGui::GetIO();
-    // io.Fonts->AddFontDefaultVector();
-    // ImFontConfig config;
-    // config.MergeMode = true;
-    // config.GlyphMinAdvanceX = 13.0f; // Use if you want to make the icon monospaced
-    // io.Fonts->AddFontFromFileTTF("fonts/fontawesome-webfont.ttf", 13.0f, &config);
-
     new_imgui.io = imgui.ImGui_GetIO();
-    var config: imgui.ImFontConfig = .{};
-    config.GlyphMinAdvanceX = 18.0;
+    var config: imgui.ImFontConfig = .{
+        .FontDataOwnedByAtlas = true,
+        .OversampleH = 2,
+        .OversampleV = 1,
+        .GlyphMinAdvanceX = 0.0,
+        .GlyphMaxAdvanceX = 18.0,
+        .RasterizerMultiply = 1.0,
+        .RasterizerDensity = 1.0,
+        .ExtraSizeScale = 1.0,
+        .PixelSnapV = true,
+    };
 
     _ = imgui.ImFontAtlas_AddFontFromFileTTF(
-        new_imgui.io.*.Fonts,
+        new_imgui.io.Fonts,
         "fonts/0xProtoNerdFontMono-Regular.ttf",
         18.0,
         &config,
         null,
     );
+
+    const style: *imgui.ImGuiStyle = imgui.ImGui_GetStyle();
+    style.WindowRounding = 5.0;
+    const rouding = 2.5;
+    style.ScrollbarRounding = rouding;
+    style.GrabRounding = rouding;
+    style.ImageRounding = rouding;
+    style.TabRounding = rouding;
+    style.ChildRounding = rouding;
+    style.PopupRounding = rouding;
+    style.FrameRounding = rouding;
+    style.ScrollbarRounding = rouding;
+    style.GrabRounding = rouding;
+    style.ImageRounding = rouding;
+    style.TabRounding = rouding;
 
     return new_imgui;
 }
@@ -328,12 +344,16 @@ pub fn update(
 
             var model_matrix = Mat4.initModel(average_position, Scale.one, Rotation.identity);
 
-            imgui.ImGuizmo_SetRect(0, 0, self.io.DisplaySize.x, self.io.DisplaySize.y);
+            imgui.ImGuizmo_SetRect(0, 0, @floatFromInt(window.logical.width), @floatFromInt(window.logical.height));
 
             _ = imgui.ImGuizmo_Manipulate(
                 &view_matrix.fields[0][0],
                 &projection_matrix.fields[0][0],
-                imgui.ROTATE,
+                switch (self.launcher.data.transfrom_tool) {
+                    .move => imgui.TRANSLATE,
+                    .rotate => imgui.ROTATE,
+                    .scale => imgui.SCALE,
+                },
                 imgui.WORLD,
                 &model_matrix.fields[0][0],
             );

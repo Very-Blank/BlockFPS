@@ -13,6 +13,7 @@ pub const LauncherData = struct {
         freeze: bool = false,
         mode: enum(u32) { normal = 0, cam = 1 } = .normal,
     },
+    transfrom_tool: enum { move, rotate, scale } = .move,
 };
 
 pub const Launcher = Window(LauncherData);
@@ -71,9 +72,37 @@ pub const init: Launcher = .{
                 }
 
                 if (imgui.ImGui_TableNextColumn()) {
-                    _ = imgui.ImGui_ButtonEx(std.fmt.comptimePrint("{u}", .{''}), .{ .x = button_size, .y = button_size });
-                    _ = imgui.ImGui_ButtonEx(std.fmt.comptimePrint("{u}", .{''}), .{ .x = button_size, .y = button_size });
-                    _ = imgui.ImGui_ButtonEx(std.fmt.comptimePrint("{u}", .{'󰙖'}), .{ .x = button_size, .y = button_size });
+                    const old = data.transfrom_tool;
+
+                    if (old != .move)
+                        imgui.ImGui_PushStyleVar(imgui.ImGuiStyleVar_Alpha, imgui.ImGui_GetStyle()[0].Alpha * 0.5);
+
+                    if (imgui.ImGui_ButtonEx(std.fmt.comptimePrint("{u}", .{''}), .{ .x = button_size, .y = button_size })) {
+                        data.transfrom_tool = .move;
+                    }
+
+                    if (old != .move)
+                        imgui.ImGui_PopStyleVar();
+
+                    if (old != .rotate)
+                        imgui.ImGui_PushStyleVar(imgui.ImGuiStyleVar_Alpha, imgui.ImGui_GetStyle()[0].Alpha * 0.5);
+
+                    if (imgui.ImGui_ButtonEx(std.fmt.comptimePrint("{u}", .{''}), .{ .x = button_size, .y = button_size })) {
+                        data.transfrom_tool = .rotate;
+                    }
+
+                    if (old != .rotate)
+                        imgui.ImGui_PopStyleVar();
+
+                    if (old != .scale)
+                        imgui.ImGui_PushStyleVar(imgui.ImGuiStyleVar_Alpha, imgui.ImGui_GetStyle()[0].Alpha * 0.5);
+
+                    if (imgui.ImGui_ButtonEx(std.fmt.comptimePrint("{u}", .{''}), .{ .x = button_size, .y = button_size })) {
+                        data.transfrom_tool = .scale;
+                    }
+
+                    if (old != .scale)
+                        imgui.ImGui_PopStyleVar();
                 }
             }
         }
