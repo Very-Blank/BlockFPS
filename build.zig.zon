@@ -48,6 +48,10 @@
             .url = "git+https://github.com/tiawl/cimgui.zig.git#6236ef65bcb28dce7c85551ff666c6a05958ce70",
             .hash = "cimgui_zig-1.0.0-2Xubko0ywgAapZ7NuD-boXc-ilbB5pSk77zwZmQ3va2o",
         },
+        .dcimguizmo = .{
+            .url = "git+https://github.com/Very-Blank/dcimguizmo.git#9f86444b6ba55e2d323b12b4cb13d7b53a2d735e",
+            .hash = "dcimguizmo-0.16.0-bNDPiu-WAADw1ptV1sxkkEKpnwtt5hmI4xTQUKRvkWGW",
+        },
     },
     .paths = .{
         "build.zig",
