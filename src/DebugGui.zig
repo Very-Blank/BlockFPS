@@ -54,15 +54,19 @@ const inspected = .{
 
 io: *imgui.struct_ImGuiIO_t,
 context: *imgui.ImGuiContext,
+icon_font: *imgui.ImFont,
 launcher: launch.Launcher = launch.init,
-tools: Tools = .{},
+views: Tools = .{},
 open_states: [tool_fields.len]bool = .{false} ** tool_fields.len,
 selections: struct {
     positions: std.ArrayList(Vector3),
     entitys: std.ArrayList(EntityPointer),
 },
-last_scale: Scale = .one,
-last_rotation: Rotation = .identity,
+gizmo_last_value: struct {
+    position: Position = .zero,
+    rotation: Rotation = .identity,
+    scale: Scale = .one,
+} = .{},
 state: enum {
     just_opened,
     open,
@@ -97,11 +101,12 @@ pub fn init(window: Window, allocator: std.mem.Allocator) Self {
     var new_imgui: Self = .{
         .io = undefined,
         .context = undefined,
+        .icon_font = undefined,
         .selections = .{
             .entitys = .empty,
             .positions = .empty,
         },
-        .tools = .{},
+        .views = .{},
         .allocator = allocator,
     };
 
@@ -110,7 +115,7 @@ pub fn init(window: Window, allocator: std.mem.Allocator) Self {
     _ = imgui.cImGui_ImplOpenGL3_Init();
 
     new_imgui.io = imgui.ImGui_GetIO();
-    var config: imgui.ImFontConfig = .{
+    var main_config: imgui.ImFontConfig = .{
         .FontDataOwnedByAtlas = true,
         .OversampleH = 2,
         .OversampleV = 1,
@@ -126,9 +131,29 @@ pub fn init(window: Window, allocator: std.mem.Allocator) Self {
         new_imgui.io.Fonts,
         "fonts/0xProtoNerdFontMono-Regular.ttf",
         18.0,
-        &config,
+        &main_config,
         null,
     );
+
+    var icon_config: imgui.ImFontConfig = .{
+        .FontDataOwnedByAtlas = true,
+        .OversampleH = 2,
+        .OversampleV = 1,
+        .GlyphMinAdvanceX = 18.0,
+        .GlyphMaxAdvanceX = 18.0,
+        .RasterizerMultiply = 1.0,
+        .RasterizerDensity = 1.0,
+        .ExtraSizeScale = 1.0,
+        .PixelSnapV = true,
+    };
+
+    new_imgui.icon_font = imgui.ImFontAtlas_AddFontFromFileTTF(
+        new_imgui.io.Fonts,
+        "fonts/fontawesome-free-7.2.0-web/fa-solid-900.ttf",
+        18.0,
+        &icon_config,
+        null,
+    ).?;
 
     const style: *imgui.ImGuiStyle = imgui.ImGui_GetStyle();
     style.WindowRounding = 5.0;
@@ -164,7 +189,7 @@ pub fn open(self: *Self) void {
     self.launcher.open = true;
 
     inline for (tool_fields, 0..) |field, i| {
-        @field(self.tools, field.name).open = self.open_states[i];
+        @field(self.views, field.name).open = self.open_states[i];
     }
 
     self.state.update(true);
@@ -174,22 +199,22 @@ pub fn close(self: *Self, ecs_engine: *Ecs) void {
     self.launcher.open = false;
 
     inline for (inspected) |field| {
-        @field(self.tools.inspector.data, field.name).has = false;
+        @field(self.views.inspector.data, field.name).has = false;
     }
 
     self.clearEntitySelections(ecs_engine);
     self.clearPositionSelections();
 
     inline for (tool_fields, 0..) |field, i| {
-        self.open_states[i] = @field(self.tools, field.name).open;
-        @field(self.tools, field.name).open = false;
+        self.open_states[i] = @field(self.views, field.name).open;
+        @field(self.views, field.name).open = false;
     }
 
     self.state.update(false);
 }
 
 pub fn clearEntitySelections(self: *Self, ecs_engine: *Ecs) void {
-    self.setEntityOutlines(ecs_engine, false);
+    self.setEntityOutlines(ecs_engine, .all, false);
     self.selections.entitys.clearRetainingCapacity();
 }
 
@@ -197,12 +222,49 @@ pub fn clearPositionSelections(self: *Self) void {
     self.selections.positions.clearRetainingCapacity();
 }
 
-pub fn setEntityOutlines(self: *Self, ecs_engine: *Ecs, outline: bool) void {
-    for (self.selections.entitys.items) |entity| {
-        set_outline: {
-            (ecs_engine.getEntityComponent(entity, Model) orelse break :set_outline).outline = outline;
-        }
+pub fn setEntityOutlines(self: *Self, ecs_engine: *Ecs, which: enum { primary, all }, enabled: bool) void {
+    if (self.selections.entitys.items.len == 0) return;
+    switch (which) {
+        .primary => {
+            var i: usize = 0;
+            while (i < self.selections.entitys.items.len - 1) : (i += 1) {
+                const entity = self.selections.entitys.items[i];
+                (ecs_engine.getEntityComponent(entity, Model) orelse continue).outline = .{
+                    .enabled = enabled,
+                    .color = .{ .r = 0.5, .b = 0.5, .g = 0.5 },
+                };
+            }
+
+            set_primary: {
+                (ecs_engine.getEntityComponent(self.selections.entitys.getLast(), Model) orelse break :set_primary).outline = .{
+                    .enabled = enabled,
+                    .color = .{},
+                };
+            }
+        },
+        .all => {
+            var i: usize = 0;
+            while (i < self.selections.entitys.items.len - 1) : (i += 1) {
+                const entity = self.selections.entitys.items[i];
+                (ecs_engine.getEntityComponent(entity, Model) orelse continue).outline = .{
+                    .enabled = enabled,
+                    .color = .{},
+                };
+            }
+
+            set_primary: {
+                (ecs_engine.getEntityComponent(self.selections.entitys.getLast(), Model) orelse break :set_primary).outline = .{
+                    .enabled = enabled,
+                    .color = .{},
+                };
+            }
+        },
     }
+
+    self.views.inspector.data.model.value.outline = .{
+        .enabled = enabled,
+        .color = .{},
+    };
 }
 
 // Returns true if any of the debug windows are open.
@@ -212,31 +274,29 @@ pub fn update(
     window: *Window,
     main_camera_singleton: SingletonType,
 ) !void {
-    if (self.launcher.data.tools.inspector) {
-        self.launcher.data.tools.inspector = false;
-        self.tools.inspector.open = true;
+    if (self.launcher.data.views.inspector) {
+        self.launcher.data.views.inspector = false;
+        self.views.inspector.open = true;
     }
 
-    if (self.launcher.data.tools.editor) {
-        self.launcher.data.tools.editor = false;
-        self.tools.editor.open = true;
+    if (self.launcher.data.views.editor) {
+        self.launcher.data.views.editor = false;
+        self.views.editor.open = true;
     }
 
     {
-        var sync: bool = false;
+        var copy = false;
         var i: usize = 0;
         while (i < self.selections.entitys.items.len) {
             if (!ecs_engine.entityIsValid(self.selections.entitys.items[i])) {
                 _ = self.selections.entitys.orderedRemove(i);
-                sync = true;
+                copy = true;
             } else {
                 i += 1;
             }
         }
 
-        if (sync) {
-            self.syncInspector(ecs_engine, true);
-        }
+        if (copy) self.syncInspector(ecs_engine, .copy);
     }
 
     if (!self.io.WantCaptureMouse and window.input.mouse_state.left_click == .justPressed) {
@@ -284,28 +344,20 @@ pub fn update(
                 if (window.input.getKeyState(.left_control).isDown()) {
                     self.clearPositionSelections();
 
-                    set: {
+                    append: {
                         for (self.selections.entitys.items, 0..) |list_entity, i| {
                             if (list_entity.eql(raycast_result.body)) {
                                 _ = self.selections.entitys.orderedRemove(i);
-                                if (ecs_engine.entityHas(raycast_result.body, Model)) {
-                                    const model: *Model = ecs_engine.getEntityComponent(raycast_result.body, Model) orelse unreachable;
-                                    model.outline = false;
-                                }
+                                (ecs_engine.getEntityComponent(raycast_result.body, Model) orelse break :append).outline.enabled = false;
 
-                                break :set;
+                                break :append;
                             }
-                        }
-
-                        if (ecs_engine.entityHas(raycast_result.body, Model)) {
-                            const model: *Model = ecs_engine.getEntityComponent(raycast_result.body, Model) orelse unreachable;
-                            model.outline = true;
                         }
 
                         try self.selections.entitys.append(self.allocator, raycast_result.body);
                     }
 
-                    self.syncInspector(ecs_engine, true);
+                    self.syncInspector(ecs_engine, .copy);
                 } else if (window.input.getKeyState(.left_shift).isDown()) {
                     self.clearEntitySelections(ecs_engine);
                     try self.selections.positions.append(self.allocator, raycast_result.position.coerce(Vector3));
@@ -319,106 +371,104 @@ pub fn update(
             }
         }
     }
-    self.syncInspector(ecs_engine, false);
 
     self.newFrame();
 
-    // GIZMO
     if (self.selections.entitys.items.len > 0) {
-        var average_position: Position = .zero;
-        for (self.selections.entitys.items) |entity| {
-            const position = ecs_engine.getEntityComponent(entity, Position) orelse unreachable;
-            average_position = average_position.add(position.*);
+        switch (self.launcher.data.tool.type) {
+            .select, .rotate, .scale => self.setEntityOutlines(ecs_engine, .primary, true),
+            .move => self.setEntityOutlines(ecs_engine, .all, true),
         }
 
-        average_position = average_position.segment(@floatFromInt(self.selections.entitys.items.len));
+        switch (self.launcher.data.tool.type) {
+            .select => {
+                if (self.views.inspector.open) {
+                    self.syncInspector(ecs_engine, .set);
+                } else {
+                    self.syncInspector(ecs_engine, .copy);
+                }
+            },
+            else => |tool| if (ecs_engine.getSingletonsEntity(main_camera_singleton)) |id| {
+                const camera = ecs_engine.getEntityComponent(id, Camera) orelse unreachable;
+                const position = ecs_engine.getEntityComponent(id, Position) orelse unreachable;
 
-        if (ecs_engine.getSingletonsEntity(main_camera_singleton)) |id| {
-            const camera = ecs_engine.getEntityComponent(id, Camera) orelse unreachable;
-            const position = ecs_engine.getEntityComponent(id, Position) orelse unreachable;
+                imgui.ImGuizmo_SetRect(0, 0, @floatFromInt(window.logical.width), @floatFromInt(window.logical.height));
 
-            const view_matrix = Mat4.initView(
-                position.add(Position{ .y = camera.offset }).negate(),
-                math.f32.Quaternion.initCamRotation(-camera.rotation.yaw, -camera.rotation.pitch),
-            );
-            const projection_matrix = camera.projection.mat;
+                const view_matrix = Mat4.initView(
+                    position.add(Position{ .y = camera.offset }).negate(),
+                    math.f32.Quaternion.initCamRotation(-camera.rotation.yaw, -camera.rotation.pitch),
+                );
 
-            var model_matrix = Mat4.initModel(average_position, Scale.one, Rotation.identity);
+                const projection_matrix = camera.projection.mat;
 
-            imgui.ImGuizmo_SetRect(0, 0, @floatFromInt(window.logical.width), @floatFromInt(window.logical.height));
-
-            _ = imgui.ImGuizmo_Manipulate(
-                &view_matrix.fields[0][0],
-                &projection_matrix.fields[0][0],
-                switch (self.launcher.data.transfrom_tool) {
-                    .move => imgui.ImGuizmo_OPERATION_TRANSLATE,
-                    .rotate => imgui.ImGuizmo_OPERATION_ROTATE,
-                    .scale => imgui.ImGuizmo_OPERATION_SCALE,
-                },
-                imgui.ImGuizmo_MODE_LOCAL,
-                &model_matrix.fields[0][0],
-            );
-
-            if (imgui.ImGuizmo_IsUsing()) {
-                switch (self.launcher.data.transfrom_tool) {
+                manipulate: switch (tool) {
                     .move => {
-                        const new_position_offset: Position = (Position{
-                            .x = model_matrix.fields[3][0],
-                            .y = model_matrix.fields[3][1],
-                            .z = model_matrix.fields[3][2],
-                        }).subtract(average_position);
-
-                        for (self.selections.entitys.items) |entity| {
-                            const pos = ecs_engine.getEntityComponent(entity, Position) orelse unreachable;
-                            pos.* = pos.add(new_position_offset);
-                        }
+                        // var average_position: Position = .zero;
+                        // for (self.selections.entitys.items) |entity| {
+                        //     const position = ecs_engine.getEntityComponent(entity, Position) orelse unreachable;
+                        //     average_position = average_position.add(position.*);
+                        // }
+                        //
+                        // average_position = average_position.segment(@floatFromInt(self.selections.entitys.items.len));
                     },
                     .rotate => {
-                        model_matrix.fields[3][0] -= average_position.x;
-                        model_matrix.fields[3][1] -= average_position.y;
-                        model_matrix.fields[3][2] -= average_position.z;
+                        const target_position = ecs_engine.getEntityComponent(self.selections.entitys.getLast(), Position) orelse break :manipulate;
+                        const target_rotation = ecs_engine.getEntityComponent(self.selections.entitys.getLast(), Rotation) orelse break :manipulate;
 
-                        const new_rotation_offset: Rotation = .initFromMatrix(model_matrix);
+                        var model_matrix = Mat4.initModel(target_position.*, Scale.one, target_rotation.*);
 
-                        for (self.selections.entitys.items) |entity| {
-                            const rotation = ecs_engine.getEntityComponent(entity, Rotation) orelse continue;
-                            rotation.* = rotation.multiply(new_rotation_offset).normalize();
+                        _ = imgui.ImGuizmo_Manipulate(
+                            &view_matrix.fields[0][0],
+                            &projection_matrix.fields[0][0],
+                            imgui.ImGuizmo_OPERATION_ROTATE,
+                            imgui.ImGuizmo_MODE_LOCAL,
+                            &model_matrix.fields[0][0],
+                        );
+
+                        if (imgui.ImGuizmo_IsUsing()) {
+                            model_matrix.fields[3][0] -= target_position.x;
+                            model_matrix.fields[3][1] -= target_position.y;
+                            model_matrix.fields[3][2] -= target_position.z;
+
+                            target_rotation.* = Rotation.initFromMatrix(model_matrix).normalize();
+
+                            self.syncInspector(ecs_engine, .copy);
                         }
                     },
                     .scale => {
-                        const new_scale_offset: Scale = init: {
-                            const current_scale: Scale = .{
+                        const target_position = ecs_engine.getEntityComponent(self.selections.entitys.getLast(), Position) orelse break :manipulate;
+                        const target_scale = ecs_engine.getEntityComponent(self.selections.entitys.getLast(), Scale) orelse break :manipulate;
+
+                        var model_matrix = Mat4.initModel(target_position.*, target_scale.*, Rotation.identity);
+
+                        _ = imgui.ImGuizmo_Manipulate(
+                            &view_matrix.fields[0][0],
+                            &projection_matrix.fields[0][0],
+                            imgui.ImGuizmo_OPERATION_SCALE,
+                            imgui.ImGuizmo_MODE_LOCAL,
+                            &model_matrix.fields[0][0],
+                        );
+
+                        if (imgui.ImGuizmo_IsUsing()) {
+                            target_scale.* = Scale{
                                 .x = model_matrix.fields[0][0],
                                 .y = model_matrix.fields[1][1],
                                 .z = model_matrix.fields[2][2],
                             };
 
-                            const offset = current_scale.subtract(self.last_scale).add(Scale.one);
-
-                            self.last_scale = current_scale;
-
-                            break :init offset;
-                        };
-
-                        for (self.selections.entitys.items) |entity| {
-                            const scale = ecs_engine.getEntityComponent(entity, Scale) orelse continue;
-                            scale.* = scale.multiply(new_scale_offset);
+                            self.syncInspector(ecs_engine, .copy);
                         }
                     },
+                    else => unreachable,
                 }
-
-                self.syncInspector(ecs_engine, true);
-            } else {
-                self.last_scale = .one;
-                self.last_rotation = .identity;
-            }
+            },
         }
     }
 
-    self.launcher.draw();
+    self.launcher.draw(self.icon_font);
 
     inline for (tool_fields) |field| {
-        @field(self.tools, field.name).draw();
+        @field(self.views, field.name).draw(self.icon_font);
     }
 
     render();
@@ -426,7 +476,7 @@ pub fn update(
 
     const is_open: bool = init: {
         inline for (tool_fields) |field| {
-            if (@field(self.tools, field.name).open) break :init true;
+            if (@field(self.views, field.name).open) break :init true;
         }
 
         break :init self.launcher.open;
@@ -435,21 +485,20 @@ pub fn update(
     self.state.update(is_open);
 }
 
-pub fn syncInspector(self: *Self, ecs_engine: *Ecs, copy: bool) void {
+pub fn syncInspector(self: *Self, ecs_engine: *Ecs, @"type": enum { copy, set }) void {
     const entity = if (0 < self.selections.entitys.items.len) self.selections.entitys.getLast() else return;
 
     inline for (inspected) |field| {
         if (ecs_engine.entityHas(entity, field.type)) {
             const component = ecs_engine.getEntityComponent(entity, field.type) orelse unreachable;
-            if (copy) {
-                @field(self.tools.inspector.data, field.name).value = component.*;
-            } else {
-                component.* = @field(self.tools.inspector.data, field.name).value;
+            switch (@"type") {
+                .copy => @field(self.views.inspector.data, field.name).value = component.*,
+                .set => component.* = @field(self.views.inspector.data, field.name).value,
             }
 
-            @field(self.tools.inspector.data, field.name).has = true;
+            @field(self.views.inspector.data, field.name).has = true;
         } else {
-            @field(self.tools.inspector.data, field.name).has = false;
+            @field(self.views.inspector.data, field.name).has = false;
         }
     }
 }

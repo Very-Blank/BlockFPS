@@ -105,6 +105,7 @@ pub fn render(self: *const Self, ecs_engine: *Ecs, player_singleton: SingletonTy
         const main_model_location = self.programs.main.getUniform("model");
         const outline_model_location = self.programs.outline.getUniform("model");
         const outline_scale_location = self.programs.outline.getUniform("scale");
+        const outline_color_location = self.programs.outline.getUniform("color");
 
         glad.glCullFace(glad.GL_BACK);
 
@@ -118,9 +119,10 @@ pub fn render(self: *const Self, ecs_engine: *Ecs, player_singleton: SingletonTy
             mat = .initModel(position.*, scale.*, rotation.*);
             glad.glUniformMatrix4fv(main_model_location, 1, glad.GL_FALSE, &mat.fields[0][0]);
 
-            if (model.outline) {
+            if (model.outline.enabled) {
                 self.programs.outline.use();
                 glad.glUniform3fv(outline_scale_location, 1, &scale.x);
+                glad.glUniform4fv(outline_color_location, 1, &model.outline.color.r);
                 glad.glUniformMatrix4fv(outline_model_location, 1, glad.GL_FALSE, &mat.fields[0][0]);
 
                 glad.glCullFace(glad.GL_FRONT);

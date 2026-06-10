@@ -35,7 +35,7 @@ pub const init: Editor = .{
     .name = "Editor",
     .data = .{},
     .draw_fn = struct {
-        pub fn draw(_: *EditorData) void {
+        pub fn draw(_: *EditorData, _: *imgui.ImFont) void {
             imgui.ImGui_Text("Hello\n");
         }
     }.draw,

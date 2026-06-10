@@ -5,7 +5,7 @@ const standards = @import("../standards.zig");
 const Window = @import("../window.zig").Window;
 
 pub const LauncherData = struct {
-    tools: struct {
+    views: struct {
         editor: bool = false,
         inspector: bool = false,
     },
@@ -13,7 +13,10 @@ pub const LauncherData = struct {
         freeze: bool = false,
         mode: enum(u32) { normal = 0, cam = 1 } = .normal,
     },
-    transfrom_tool: enum { move, rotate, scale } = .move,
+    tool: struct {
+        type: enum { select, move, rotate, scale } = .select,
+        changed: bool = false,
+    },
 };
 
 pub const Launcher = Window(LauncherData);
@@ -21,11 +24,12 @@ pub const Launcher = Window(LauncherData);
 pub const init: Launcher = .{
     .name = "Launcher",
     .data = .{
-        .tools = .{},
+        .views = .{},
         .game = .{},
+        .tool = .{},
     },
     .draw_fn = struct {
-        pub fn draw(data: *LauncherData) void {
+        pub fn draw(data: *LauncherData, icons: *imgui.ImFont) void {
             if (imgui.ImGui_BeginTable("split", 2, 0)) {
                 defer imgui.ImGui_EndTable();
 
@@ -39,15 +43,15 @@ pub const init: Launcher = .{
                         imgui.ImGui_PushItemWidth(100);
                         defer imgui.ImGui_PopItemWidth();
 
-                        if (imgui.ImGui_BeginCombo("##tools", "Tools", 0)) {
+                        if (imgui.ImGui_BeginCombo("##tools", "Views", 0)) {
                             defer imgui.ImGui_EndCombo();
 
                             if (imgui.ImGui_Selectable("Inspector")) {
-                                data.tools.inspector = true;
+                                data.views.inspector = true;
                             }
 
                             if (imgui.ImGui_Selectable("Editor")) {
-                                data.tools.editor = true;
+                                data.views.editor = true;
                             }
                         }
                     }
@@ -72,37 +76,30 @@ pub const init: Launcher = .{
                 }
 
                 if (imgui.ImGui_TableNextColumn()) {
-                    const old = data.transfrom_tool;
+                    const old = data.tool.type;
+                    const values = std.enums.values(@FieldType(@FieldType(LauncherData, "tool"), "type"));
 
-                    if (old != .move)
-                        imgui.ImGui_PushStyleVar(imgui.ImGuiStyleVar_Alpha, imgui.ImGui_GetStyle()[0].Alpha * 0.5);
+                    imgui.ImGui_PushFont(icons);
+                    defer imgui.ImGui_PopFont();
+                    inline for (values) |value| {
+                        if (old != value)
+                            imgui.ImGui_PushStyleVar(imgui.ImGuiStyleVar_Alpha, imgui.ImGui_GetStyle()[0].Alpha * 0.5);
 
-                    if (imgui.ImGui_ButtonEx(std.fmt.comptimePrint("{u}", .{''}), .{ .x = button_size, .y = button_size })) {
-                        data.transfrom_tool = .move;
+                        if (imgui.ImGui_ButtonEx(std.fmt.comptimePrint("{u}", .{switch (value) {
+                            .select => '',
+                            .move => '',
+                            .rotate => '',
+                            .scale => '',
+                        }}), .{ .x = button_size, .y = button_size })) {
+                            data.tool.type = value;
+                            data.tool.changed = true;
+                        } else {
+                            data.tool.changed = false;
+                        }
+
+                        if (old != value)
+                            imgui.ImGui_PopStyleVar();
                     }
-
-                    if (old != .move)
-                        imgui.ImGui_PopStyleVar();
-
-                    if (old != .rotate)
-                        imgui.ImGui_PushStyleVar(imgui.ImGuiStyleVar_Alpha, imgui.ImGui_GetStyle()[0].Alpha * 0.5);
-
-                    if (imgui.ImGui_ButtonEx(std.fmt.comptimePrint("{u}", .{''}), .{ .x = button_size, .y = button_size })) {
-                        data.transfrom_tool = .rotate;
-                    }
-
-                    if (old != .rotate)
-                        imgui.ImGui_PopStyleVar();
-
-                    if (old != .scale)
-                        imgui.ImGui_PushStyleVar(imgui.ImGuiStyleVar_Alpha, imgui.ImGui_GetStyle()[0].Alpha * 0.5);
-
-                    if (imgui.ImGui_ButtonEx(std.fmt.comptimePrint("{u}", .{''}), .{ .x = button_size, .y = button_size })) {
-                        data.transfrom_tool = .scale;
-                    }
-
-                    if (old != .scale)
-                        imgui.ImGui_PopStyleVar();
                 }
             }
         }
