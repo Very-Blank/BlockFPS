@@ -61,6 +61,8 @@ selections: struct {
     positions: std.ArrayList(Vector3),
     entitys: std.ArrayList(EntityPointer),
 },
+last_scale: Scale = .one,
+last_rotation: Rotation = .identity,
 state: enum {
     just_opened,
     open,
@@ -353,49 +355,62 @@ pub fn update(
                     .rotate => imgui.ImGuizmo_OPERATION_ROTATE,
                     .scale => imgui.ImGuizmo_OPERATION_SCALE,
                 },
-                imgui.ImGuizmo_MODE_WORLD,
+                imgui.ImGuizmo_MODE_LOCAL,
                 &model_matrix.fields[0][0],
             );
 
             if (imgui.ImGuizmo_IsUsing()) {
-                const new_position_offset: Position = .{
-                    .x = model_matrix.fields[3][0],
-                    .y = model_matrix.fields[3][1],
-                    .z = model_matrix.fields[3][2],
-                };
+                switch (self.launcher.data.transfrom_tool) {
+                    .move => {
+                        const new_position_offset: Position = (Position{
+                            .x = model_matrix.fields[3][0],
+                            .y = model_matrix.fields[3][1],
+                            .z = model_matrix.fields[3][2],
+                        }).subtract(average_position);
 
-                const new_rotation_offset: Rotation = .initFromMatrix(model_matrix);
+                        for (self.selections.entitys.items) |entity| {
+                            const pos = ecs_engine.getEntityComponent(entity, Position) orelse unreachable;
+                            pos.* = pos.add(new_position_offset);
+                        }
+                    },
+                    .rotate => {
+                        model_matrix.fields[3][0] -= average_position.x;
+                        model_matrix.fields[3][1] -= average_position.y;
+                        model_matrix.fields[3][2] -= average_position.z;
 
-                const new_scale_offset: Scale = .{
-                    .x = model_matrix.fields[0][0],
-                    .y = model_matrix.fields[1][1],
-                    .z = model_matrix.fields[2][2],
-                };
+                        const new_rotation_offset: Rotation = .initFromMatrix(model_matrix);
 
-                const offset = new_position_offset.subtract(average_position);
+                        for (self.selections.entitys.items) |entity| {
+                            const rotation = ecs_engine.getEntityComponent(entity, Rotation) orelse continue;
+                            rotation.* = rotation.multiply(new_rotation_offset).normalize();
+                        }
+                    },
+                    .scale => {
+                        const new_scale_offset: Scale = init: {
+                            const current_scale: Scale = .{
+                                .x = model_matrix.fields[0][0],
+                                .y = model_matrix.fields[1][1],
+                                .z = model_matrix.fields[2][2],
+                            };
 
-                for (self.selections.entitys.items) |entity| {
-                    const pos = ecs_engine.getEntityComponent(entity, Position) orelse unreachable;
-                    pos.* = pos.add(offset);
+                            const offset = current_scale.subtract(self.last_scale).add(Scale.one);
 
-                    set_rotation: {
-                        const rotation = ecs_engine.getEntityComponent(entity, Rotation) orelse break :set_rotation;
-                        rotation.* = rotation.multiply(new_rotation_offset);
-                    }
+                            self.last_scale = current_scale;
 
-                    set_scale: {
-                        const scale = ecs_engine.getEntityComponent(entity, Scale) orelse break :set_scale;
-                        scale.* = scale.multiply(new_scale_offset);
-                    }
+                            break :init offset;
+                        };
 
-                    // TODO:
-                    // set_collider_scale: {
-                    //     const scale = ecs_engine.getEntityComponent(entity, Scale) orelse break :set_scale;
-                    //     scale.* = scale.multiply(new_scale_offset);
-                    // }
+                        for (self.selections.entitys.items) |entity| {
+                            const scale = ecs_engine.getEntityComponent(entity, Scale) orelse continue;
+                            scale.* = scale.multiply(new_scale_offset);
+                        }
+                    },
                 }
 
                 self.syncInspector(ecs_engine, true);
+            } else {
+                self.last_scale = .one;
+                self.last_rotation = .identity;
             }
         }
     }
