@@ -197,9 +197,8 @@ pub fn clearPositionSelections(self: *Self) void {
 
 pub fn setEntityOutlines(self: *Self, ecs_engine: *Ecs, outline: bool) void {
     for (self.selections.entitys.items) |entity| {
-        if (ecs_engine.entityIsValid(entity) and ecs_engine.entityHas(entity, Model)) {
-            const model: *Model = ecs_engine.getEntityComponent(entity, Model) catch unreachable;
-            model.outline = outline;
+        set_outline: {
+            (ecs_engine.getEntityComponent(entity, Model) orelse break :set_outline).outline = outline;
         }
     }
 }
@@ -240,8 +239,8 @@ pub fn update(
 
     if (!self.io.WantCaptureMouse and window.input.mouse_state.left_click == .justPressed) {
         if (ecs_engine.getSingletonsEntity(main_camera_singleton)) |id| {
-            const camera = ecs_engine.getEntityComponent(id, Camera) catch unreachable;
-            const position = ecs_engine.getEntityComponent(id, Position) catch unreachable;
+            const camera = ecs_engine.getEntityComponent(id, Camera) orelse unreachable;
+            const position = ecs_engine.getEntityComponent(id, Position) orelse unreachable;
 
             const view_matrix = Mat4.initView(
                 position.add(Position{ .y = camera.offset }).negate(),
@@ -288,7 +287,7 @@ pub fn update(
                             if (list_entity.eql(raycast_result.body)) {
                                 _ = self.selections.entitys.orderedRemove(i);
                                 if (ecs_engine.entityHas(raycast_result.body, Model)) {
-                                    const model: *Model = ecs_engine.getEntityComponent(raycast_result.body, Model) catch unreachable;
+                                    const model: *Model = ecs_engine.getEntityComponent(raycast_result.body, Model) orelse unreachable;
                                     model.outline = false;
                                 }
 
@@ -297,7 +296,7 @@ pub fn update(
                         }
 
                         if (ecs_engine.entityHas(raycast_result.body, Model)) {
-                            const model: *Model = ecs_engine.getEntityComponent(raycast_result.body, Model) catch unreachable;
+                            const model: *Model = ecs_engine.getEntityComponent(raycast_result.body, Model) orelse unreachable;
                             model.outline = true;
                         }
 
@@ -326,15 +325,15 @@ pub fn update(
     if (self.selections.entitys.items.len > 0) {
         var average_position: Position = .zero;
         for (self.selections.entitys.items) |entity| {
-            const position = ecs_engine.getEntityComponent(entity, Position) catch unreachable;
+            const position = ecs_engine.getEntityComponent(entity, Position) orelse unreachable;
             average_position = average_position.add(position.*);
         }
 
         average_position = average_position.segment(@floatFromInt(self.selections.entitys.items.len));
 
         if (ecs_engine.getSingletonsEntity(main_camera_singleton)) |id| {
-            const camera = ecs_engine.getEntityComponent(id, Camera) catch unreachable;
-            const position = ecs_engine.getEntityComponent(id, Position) catch unreachable;
+            const camera = ecs_engine.getEntityComponent(id, Camera) orelse unreachable;
+            const position = ecs_engine.getEntityComponent(id, Position) orelse unreachable;
 
             const view_matrix = Mat4.initView(
                 position.add(Position{ .y = camera.offset }).negate(),
@@ -350,28 +349,51 @@ pub fn update(
                 &view_matrix.fields[0][0],
                 &projection_matrix.fields[0][0],
                 switch (self.launcher.data.transfrom_tool) {
-                    .move => imgui.TRANSLATE,
-                    .rotate => imgui.ROTATE,
-                    .scale => imgui.SCALE,
+                    .move => imgui.ImGuizmo_OPERATION_TRANSLATE,
+                    .rotate => imgui.ImGuizmo_OPERATION_ROTATE,
+                    .scale => imgui.ImGuizmo_OPERATION_SCALE,
                 },
-                imgui.WORLD,
+                imgui.ImGuizmo_MODE_WORLD,
                 &model_matrix.fields[0][0],
             );
 
             if (imgui.ImGuizmo_IsUsing()) {
-                var new_pos: Position = .zero;
-                var new_rot: Vector3 = .zero;
-                var new_scale: Scale = .zero;
+                const new_position_offset: Position = .{
+                    .x = model_matrix.fields[3][0],
+                    .y = model_matrix.fields[3][1],
+                    .z = model_matrix.fields[3][2],
+                };
 
-                imgui.ImGuizmo_DecomposeMatrixToComponents(&model_matrix.fields[0][0], &new_pos.x, &new_rot.x, &new_scale.x);
+                const new_rotation_offset: Rotation = .initFromMatrix(model_matrix);
 
-                new_pos = new_pos;
+                const new_scale_offset: Scale = .{
+                    .x = model_matrix.fields[0][0],
+                    .y = model_matrix.fields[1][1],
+                    .z = model_matrix.fields[2][2],
+                };
+
+                const offset = new_position_offset.subtract(average_position);
 
                 for (self.selections.entitys.items) |entity| {
-                    const pos = ecs_engine.getEntityComponent(entity, Position) catch unreachable;
-                    pos.* = pos.add(new_pos.subtract(average_position));
+                    const pos = ecs_engine.getEntityComponent(entity, Position) orelse unreachable;
+                    pos.* = pos.add(offset);
+
+                    set_rotation: {
+                        const rotation = ecs_engine.getEntityComponent(entity, Rotation) orelse break :set_rotation;
+                        rotation.* = rotation.multiply(new_rotation_offset);
+                    }
+
+                    set_scale: {
+                        const scale = ecs_engine.getEntityComponent(entity, Scale) orelse break :set_scale;
+                        scale.* = scale.multiply(new_scale_offset);
+                    }
+
+                    // TODO:
+                    // set_collider_scale: {
+                    //     const scale = ecs_engine.getEntityComponent(entity, Scale) orelse break :set_scale;
+                    //     scale.* = scale.multiply(new_scale_offset);
+                    // }
                 }
-                // rot.* = .initFromVector(new_rot.scale(std.math.pi / 180.0));
 
                 self.syncInspector(ecs_engine, true);
             }
@@ -403,7 +425,7 @@ pub fn syncInspector(self: *Self, ecs_engine: *Ecs, copy: bool) void {
 
     inline for (inspected) |field| {
         if (ecs_engine.entityHas(entity, field.type)) {
-            const component = ecs_engine.getEntityComponent(entity, field.type) catch unreachable;
+            const component = ecs_engine.getEntityComponent(entity, field.type) orelse unreachable;
             if (copy) {
                 @field(self.tools.inspector.data, field.name).value = component.*;
             } else {

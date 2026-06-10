@@ -26,7 +26,7 @@ const Template = ecs.Template;
 
 pub fn update(ecs_engine: *Ecs, player_singleton: SingletonType, random: std.Random, delta_time: f32) void {
     const player_id = ecs_engine.getSingletonsEntity(player_singleton) orelse return;
-    const player_pos = ecs_engine.getEntityComponent(player_id, Position) catch unreachable;
+    const player_pos = ecs_engine.getEntityComponent(player_id, Position) orelse unreachable;
 
     var iterator = ecs_engine.getTupleIterator(.{
         .include = ecs.Template{ .components = &.{ Enemy, Position, Rotation, Rigidbody, Grounded } },

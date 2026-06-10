@@ -84,7 +84,7 @@ pub fn build(b: *std.Build) void {
                 .target = target,
             });
 
-            translate_c.addIncludePath(imguizmo_dependency.path("src/"));
+            translate_c.addIncludePath(imguizmo_dependency.path("out/"));
             translate_c.addIncludePath(imgui_path);
             translate_c.addIncludePath(imgui_path.path(b, "backends"));
 
@@ -101,9 +101,9 @@ pub fn build(b: *std.Build) void {
                 .target = target,
             });
 
-            module.addCSourceFile(.{ .file = imguizmo_dependency.path("src/cimguizmo.cpp") });
+            module.addCSourceFile(.{ .file = imguizmo_dependency.path("out/cimguizmo.cpp") });
             module.addCSourceFile(.{ .file = imguizmo_dependency.builder.dependency("imguizmo", .{}).path("src/ImGuizmo.cpp") });
-            module.addIncludePath(b.path("src"));
+            module.addIncludePath(imguizmo_dependency.path("out"));
             module.addIncludePath(imguizmo_dependency.builder.dependency("imguizmo", .{}).path("src/"));
             module.addIncludePath(imgui_dependency.path(if (docking) "dcimgui/docking/" else "dcimgui/master/"));
             module.linkLibrary(imgui_dependency.artifact("cimgui"));

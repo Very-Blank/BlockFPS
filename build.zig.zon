@@ -33,24 +33,24 @@
     // internet connectivity.
     .dependencies = .{
         .glfw_zig = .{
-            .url = "git+https://github.com/tiawl/glfw.zig.git#8d9584286cc7472257b75cbdb406fe30ea82c26c",
-            .hash = "glfw_zig-1.0.0-NrvYo33RGQCSVnxis0Pin53R-mmz5xX8VjttCnTg9OVH",
+            .url = "git+https://github.com/tiawl/glfw.zig.git#113d4eb9a4d9de35d7c225559bf830922c721b6f",
+            .hash = "glfw_zig-1.0.0-NrvYo4bRGQAP317l7e7dT4IZdJGieD-xtbGixDqW7IK5",
         },
         .ZigMath = .{
-            .url = "git+https://github.com/Very-Blank/ZigMath.git#b90d622c75e8a4da06a6635900426ca08b3cc4b8",
-            .hash = "ZigMath-0.0.0-M0fTGKmDAADQQh5cJXV74UdGigi1KE7QqItzYiQNPSlq",
+            .url = "git+https://github.com/Very-Blank/ZigMath.git#1897f6499b57b231fd0fbdc4e1a64980c9515ba7",
+            .hash = "ZigMath-0.0.0-M0fTGLqJAADP2a4g-E0QlptB1tpxXBWX8av1Iv_Im4hy",
         },
         .ECS = .{
-            .url = "git+https://github.com/Very-Blank/Ecs.git#d00952ffc8191367f75ba08a3d6615703ced797f",
-            .hash = "ECS-0.0.0-llhprZlCAQARGUtbXxyyfWptN2ojUiVLUjx1Cno63iVM",
+            .url = "git+https://github.com/Very-Blank/Ecs.git#be073943e27abdf8f02dc1ef79d301202a52715b",
+            .hash = "ECS-0.0.0-llhprYJCAQBqwYXwrps0IMhZBCurZ7p99yu3J10jywo0",
         },
         .cimgui_zig = .{
             .url = "git+https://github.com/tiawl/cimgui.zig.git#6236ef65bcb28dce7c85551ff666c6a05958ce70",
             .hash = "cimgui_zig-1.0.0-2Xubko0ywgAapZ7NuD-boXc-ilbB5pSk77zwZmQ3va2o",
         },
         .dcimguizmo = .{
-            .url = "git+https://github.com/Very-Blank/dcimguizmo.git#9f86444b6ba55e2d323b12b4cb13d7b53a2d735e",
-            .hash = "dcimguizmo-0.16.0-bNDPiu-WAADw1ptV1sxkkEKpnwtt5hmI4xTQUKRvkWGW",
+            .url = "git+https://github.com/Very-Blank/dear_bindings.git#2289dd9dfab5a2f786e0de59e6830da9af1edbaf",
+            .hash = "dear_bindings-0.16.0-WUVLV-taCADKqpNoZ6hb-1sIP_7wLIBZnH3Y65ZB_VN-",
         },
     },
     .paths = .{

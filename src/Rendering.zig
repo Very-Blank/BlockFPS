@@ -72,8 +72,8 @@ fn createProgram(io: Io, vertex_path: []const u8, fragment_path: []const u8, all
 pub fn render(self: *const Self, ecs_engine: *Ecs, player_singleton: SingletonType) void {
     var view: math.f32.Mat4, var projection: math.f32.Mat4 = init: {
         if (ecs_engine.getSingletonsEntity(player_singleton)) |id| {
-            const position = ecs_engine.getEntityComponent(id, Position) catch unreachable;
-            const camera = ecs_engine.getEntityComponent(id, Camera) catch unreachable;
+            const position = ecs_engine.getEntityComponent(id, Position) orelse unreachable;
+            const camera = ecs_engine.getEntityComponent(id, Camera) orelse unreachable;
 
             break :init .{
                 math.f32.Mat4.initView(

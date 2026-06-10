@@ -217,15 +217,15 @@ pub fn main(init: std.process.Init) !void {
                 },
             }
         } else if (ecs_engine.getSingletonsEntity(player_singleton)) |id| {
-            const rigidbody = ecs_engine.getEntityComponent(id, Rigidbody) catch unreachable;
+            const rigidbody = ecs_engine.getEntityComponent(id, Rigidbody) orelse unreachable;
             rigidbody.velocity.x = 0;
             rigidbody.velocity.z = 0;
         }
 
         const links = ecs_engine.getLinks("parent");
         for (links.data, 0..) |data, i| {
-            const src_position = ecs_engine.getEntityComponent(links.sources[i], Position) catch unreachable;
-            const dst_position = ecs_engine.getEntityComponent(links.destinations[i], Position) catch unreachable;
+            const src_position = ecs_engine.getEntityComponent(links.sources[i], Position) orelse unreachable;
+            const dst_position = ecs_engine.getEntityComponent(links.destinations[i], Position) orelse unreachable;
 
             dst_position.* = src_position.add(data);
         }
@@ -308,13 +308,13 @@ pub fn main(init: std.process.Init) !void {
 
 pub fn handleCollision(physics: *Physics, ecs_engine: *Ecs) void {
     for (physics.sbVsRb_collisions.items, 0..) |collision, i| {
-        if (ecs_engine.entityHas(collision.body1, Grounded) and 0.9 < physics.sbVsRb_infos.items[i].normal.dot(Vector3.up)) {
-            const grounded = ecs_engine.getEntityComponent(collision.body1, Grounded) catch unreachable;
-            grounded.grounded = true;
+        grounded: {
+            if (physics.sbVsRb_infos.items[i].normal.dot(Vector3.up) < 0.9) break :grounded;
+            (ecs_engine.getEntityComponent(collision.body1, Grounded) orelse break :grounded).grounded = true;
         }
 
-        if (ecs_engine.entityHas(collision.body1, Bullet)) {
-            const bullet = ecs_engine.getEntityComponent(collision.body1, Bullet) catch unreachable;
+        bullet: {
+            const bullet = ecs_engine.getEntityComponent(collision.body1, Bullet) orelse break :bullet;
             if (bullet.max_deflection_angle < -physics.sbVsRb_infos.items[i].angle) {
                 ecs_engine.destroyEntity(collision.body1);
             }
@@ -323,21 +323,19 @@ pub fn handleCollision(physics: *Physics, ecs_engine: *Ecs) void {
 
     for (physics.rbVsRb_collisions.items, 0..) |collision, i| {
         inline for (.{ .{ .self = "body1", .other = "body2" }, .{ .self = "body2", .other = "body1" } }) |fields| {
-            if (ecs_engine.entityHas(@field(collision, fields.self), Grounded) and 0.9 < physics.rbVsRb_infos.items[i].normal.dot(Vector3.up)) {
-                const grounded = ecs_engine.getEntityComponent(@field(collision, fields.self), Grounded) catch unreachable;
-                grounded.grounded = true;
+            grounded: {
+                if (physics.rbVsRb_infos.items[i].normal.dot(Vector3.up) < 0.9) break :grounded;
+                (ecs_engine.getEntityComponent(@field(collision, fields.self), Grounded) orelse break :grounded).grounded = true;
             }
 
-            if (ecs_engine.entityHas(@field(collision, fields.self), Bullet)) {
-                const bullet = ecs_engine.getEntityComponent(@field(collision, fields.self), Bullet) catch unreachable;
-                if (ecs_engine.entityHas(@field(collision, fields.other), Enemy)) {
-                    const enemy = ecs_engine.getEntityComponent(@field(collision, fields.other), Enemy) catch unreachable;
-                    enemy.vision.memory.reset();
+            bullet: {
+                const bullet = ecs_engine.getEntityComponent(@field(collision, fields.self), Bullet) orelse break :bullet;
+                vision: {
+                    (ecs_engine.getEntityComponent(@field(collision, fields.other), Enemy) orelse break :vision).vision.memory.reset();
                 }
 
-                if (ecs_engine.entityHas(@field(collision, fields.other), Health)) {
-                    const health = ecs_engine.getEntityComponent(@field(collision, fields.other), Health) catch unreachable;
-                    health.current -= bullet.damage;
+                health: {
+                    (ecs_engine.getEntityComponent(@field(collision, fields.other), Health) orelse break :health).current -= bullet.damage;
                 }
 
                 ecs_engine.destroyEntity(@field(collision, fields.self));
@@ -350,8 +348,8 @@ pub fn handleCollision(physics: *Physics, ecs_engine: *Ecs) void {
 
 pub fn handleCamInput(ecs_engine: *Ecs, window: *Window, cam_singleton: SingletonType, delta_time: f32) void {
     if (ecs_engine.getSingletonsEntity(cam_singleton)) |id| {
-        const position = ecs_engine.getEntityComponent(id, Position) catch unreachable;
-        const camera = ecs_engine.getEntityComponent(id, Camera) catch unreachable;
+        const position = ecs_engine.getEntityComponent(id, Position) orelse unreachable;
+        const camera = ecs_engine.getEntityComponent(id, Camera) orelse unreachable;
 
         camera.rotation.yaw -= window.input.mouse_state.motion.x / 1000.0;
         camera.rotation.pitch -= window.input.mouse_state.motion.y / 1000.0;
@@ -392,10 +390,10 @@ pub fn handleCamInput(ecs_engine: *Ecs, window: *Window, cam_singleton: Singleto
 
 pub fn handlePlayerInput(ecs_engine: *Ecs, window: *Window, player_singleton: SingletonType) void {
     if (ecs_engine.getSingletonsEntity(player_singleton)) |id| {
-        const position = ecs_engine.getEntityComponent(id, Position) catch unreachable;
-        const rigidbody = ecs_engine.getEntityComponent(id, Rigidbody) catch unreachable;
-        const grounded = ecs_engine.getEntityComponent(id, Grounded) catch unreachable;
-        const camera = ecs_engine.getEntityComponent(id, Camera) catch unreachable;
+        const position = ecs_engine.getEntityComponent(id, Position) orelse unreachable;
+        const rigidbody = ecs_engine.getEntityComponent(id, Rigidbody) orelse unreachable;
+        const grounded = ecs_engine.getEntityComponent(id, Grounded) orelse unreachable;
+        const camera = ecs_engine.getEntityComponent(id, Camera) orelse unreachable;
 
         camera.rotation.yaw -= window.input.mouse_state.motion.x / 1000.0;
         camera.rotation.pitch -= window.input.mouse_state.motion.y / 1000.0;
