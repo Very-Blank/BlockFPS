@@ -74,62 +74,6 @@ pub fn main(init: std.process.Init) !void {
 
     const target = ecs_engine.createSingleton(.{ .components = &.{ Position, Collider } });
 
-    const up = ecs_engine.createEntity(.{
-        math.AxisType.y,
-        Position{ .y = 1.25, .x = 0, .z = 0 },
-        Scale{ .y = 1.5, .x = 0.2, .z = 0.2 },
-        Rotation.identity,
-        Collider{
-            .type = .{ .box = .{ .y = 1.5, .x = 0.2, .z = 0.2 } },
-            .layer = .debug,
-            .mask = .none,
-        },
-        Model{},
-    }, &.{});
-
-    // ecs.Template{ .components = &.{ math.AxisType, Position, Scale, Rotation, Model } },
-    const right = ecs_engine.createEntity(.{
-        math.AxisType.x,
-        Position.zero,
-        Scale{ .x = 1.5, .y = 0.2, .z = 0.2 },
-        Rotation.identity,
-        Collider{
-            .type = .{ .box = .{ .x = 1.5, .y = 0.2, .z = 0.2 } },
-            .layer = .debug,
-            .mask = .none,
-        },
-        Model{},
-    }, &.{});
-
-    const forward = ecs_engine.createEntity(.{
-        math.AxisType.z,
-        Position.zero,
-        Scale{ .z = 1.5, .x = 0.2, .y = 0.2 },
-        Rotation.identity,
-        Collider{
-            .type = .{ .box = .{ .z = 1.5, .x = 0.2, .y = 0.2 } },
-            .layer = .debug,
-            .mask = .none,
-        },
-        Model{},
-    }, &.{});
-
-    const center = ecs_engine.createEntity(.{
-        Position{ .z = 0.0, .x = 0, .y = 0.0 },
-        Scale{ .z = 0.2, .x = 0.2, .y = 0.2 },
-        Rotation.identity,
-        Collider{
-            .type = .{ .box = .{ .x = 0.1, .y = 0.1, .z = 0.1 } },
-            .layer = .debug,
-            .mask = .none,
-        },
-        Model{},
-    }, &.{});
-
-    ecs_engine.createLink("parent", center, right, Position{ .x = 1.25, .y = 0, .z = 0 }) catch unreachable;
-    ecs_engine.createLink("parent", center, up, Position{ .y = 1.25, .x = 0, .z = 0 }) catch unreachable;
-    ecs_engine.createLink("parent", center, forward, Position{ .z = 1.25, .x = 0, .y = 0 }) catch unreachable;
-
     var physics: Physics = .init(gpa);
     defer physics.deinit();
 
@@ -611,4 +555,8 @@ pub fn makeArena(ecs_engine: *Ecs, size: f32) void {
     //     Rigidbody{ .restitution = 0.0, .mass = 5.0 },
     //     Grounded{ .grounded = false },
     // }, &.{});
+}
+
+test "tests" {
+    _ = @import("json.zig");
 }

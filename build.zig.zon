@@ -37,8 +37,8 @@
             .hash = "glfw_zig-1.0.0-NrvYo4bRGQAP317l7e7dT4IZdJGieD-xtbGixDqW7IK5",
         },
         .ZigMath = .{
-            .url = "git+https://github.com/Very-Blank/ZigMath.git#0c7790b73fb616452cd9342f22dd364bbfff4831",
-            .hash = "ZigMath-0.0.0-M0fTGOiLAABaSouuACNyDSzwySWtd_je1Sa2SzZcqy_j",
+            .url = "git+https://github.com/Very-Blank/ZigMath.git#5e418a8596b0e6b5b96d8b6614a0d36ebae0e1fb",
+            .hash = "ZigMath-0.0.0-M0fTGAGNAAC_EY-tITfwjoIyanhjZ3kIN-eUUOKH5uFj",
         },
         .ECS = .{
             .url = "git+https://github.com/Very-Blank/Ecs.git#be073943e27abdf8f02dc1ef79d301202a52715b",

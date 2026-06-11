@@ -101,7 +101,7 @@
 
         extraModule = {...}: {
           config.nmux = {
-            shell = "${pkgs.lib.getExe pkgs.bash}";
+            shell = "${pkgs.lib.getExe pkgs.zsh}";
             extraConfig = ''
               set-hook -g session-created 'send-keys "nvim" enter ; new-window ; select-window -t 0'
             '';

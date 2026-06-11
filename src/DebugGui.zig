@@ -392,12 +392,12 @@ pub fn update(
                 const camera = ecs_engine.getEntityComponent(id, Camera) orelse unreachable;
                 const position = ecs_engine.getEntityComponent(id, Position) orelse unreachable;
 
-                imgui.ImGuizmo_SetRect(0, 0, @floatFromInt(window.logical.width), @floatFromInt(window.logical.height));
+                imgui.ImGuizmo_SetRect(0, 0, self.io.DisplaySize.x, self.io.DisplaySize.y);
 
-                const view_matrix = Mat4.initView(
+                const view_matrix = (Mat4.initView(
                     position.add(Position{ .y = camera.offset }).negate(),
                     math.f32.Quaternion.initCamRotation(-camera.rotation.yaw, -camera.rotation.pitch),
-                );
+                ));
 
                 const projection_matrix = camera.projection.mat;
 
@@ -445,7 +445,7 @@ pub fn update(
                         _ = imgui.ImGuizmo_Manipulate(
                             &view_matrix.fields[0][0],
                             &projection_matrix.fields[0][0],
-                            imgui.ImGuizmo_OPERATION_ROTATE,
+                            imgui.ImGuizmo_OPERATION_ROTATE & ~imgui.ImGuizmo_OPERATION_ROTATE_SCREEN,
                             imgui.ImGuizmo_MODE_WORLD,
                             &model_matrix.fields[0][0],
                         );

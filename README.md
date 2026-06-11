@@ -25,7 +25,9 @@ List of things to ignore.
 
 # FIXME
 
-- [ ] If capsule.height <= capsule.radius -> CRASH
+- [ ] If capsule.height <= capsule.radius -> CRASH.
+- [ ] Translate tool, if avarage position changes because one or multiple bodies
+      move it leads to incorrect translation.
 
 ## BUGS killed
 
