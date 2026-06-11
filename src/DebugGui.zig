@@ -403,13 +403,38 @@ pub fn update(
 
                 manipulate: switch (tool) {
                     .move => {
-                        // var average_position: Position = .zero;
-                        // for (self.selections.entitys.items) |entity| {
-                        //     const position = ecs_engine.getEntityComponent(entity, Position) orelse unreachable;
-                        //     average_position = average_position.add(position.*);
-                        // }
-                        //
-                        // average_position = average_position.segment(@floatFromInt(self.selections.entitys.items.len));
+                        var average_position: Position = .zero;
+
+                        var count: usize = 0;
+                        for (self.selections.entitys.items) |entity| {
+                            average_position = average_position.add((ecs_engine.getEntityComponent(entity, Position) orelse continue).*);
+                            count += 1;
+                        }
+
+                        average_position = average_position.segment(@floatFromInt(count));
+
+                        var model_matrix = Mat4.initModel(average_position, Scale.one, Rotation.identity);
+
+                        _ = imgui.ImGuizmo_Manipulate(
+                            &view_matrix.fields[0][0],
+                            &projection_matrix.fields[0][0],
+                            imgui.ImGuizmo_OPERATION_TRANSLATE,
+                            imgui.ImGuizmo_MODE_WORLD,
+                            &model_matrix.fields[0][0],
+                        );
+
+                        if (imgui.ImGuizmo_IsUsing()) {
+                            const change: Position = .{
+                                .x = model_matrix.fields[3][0] - average_position.x,
+                                .y = model_matrix.fields[3][1] - average_position.y,
+                                .z = model_matrix.fields[3][2] - average_position.z,
+                            };
+
+                            for (self.selections.entitys.items) |entity| {
+                                const selection_position = (ecs_engine.getEntityComponent(entity, Position) orelse continue);
+                                selection_position.* = selection_position.add(change);
+                            }
+                        }
                     },
                     .rotate => {
                         const target_position = ecs_engine.getEntityComponent(self.selections.entitys.getLast(), Position) orelse break :manipulate;
@@ -421,7 +446,7 @@ pub fn update(
                             &view_matrix.fields[0][0],
                             &projection_matrix.fields[0][0],
                             imgui.ImGuizmo_OPERATION_ROTATE,
-                            imgui.ImGuizmo_MODE_LOCAL,
+                            imgui.ImGuizmo_MODE_WORLD,
                             &model_matrix.fields[0][0],
                         );
 
@@ -431,8 +456,6 @@ pub fn update(
                             model_matrix.fields[3][2] -= target_position.z;
 
                             target_rotation.* = Rotation.initFromMatrix(model_matrix).normalize();
-
-                            self.syncInspector(ecs_engine, .copy);
                         }
                     },
                     .scale => {
@@ -445,7 +468,7 @@ pub fn update(
                             &view_matrix.fields[0][0],
                             &projection_matrix.fields[0][0],
                             imgui.ImGuizmo_OPERATION_SCALE,
-                            imgui.ImGuizmo_MODE_LOCAL,
+                            imgui.ImGuizmo_MODE_WORLD,
                             &model_matrix.fields[0][0],
                         );
 
@@ -455,12 +478,12 @@ pub fn update(
                                 .y = model_matrix.fields[1][1],
                                 .z = model_matrix.fields[2][2],
                             };
-
-                            self.syncInspector(ecs_engine, .copy);
                         }
                     },
                     else => unreachable,
                 }
+
+                self.syncInspector(ecs_engine, .copy);
             },
         }
     }
