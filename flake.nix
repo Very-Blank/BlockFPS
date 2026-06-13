@@ -125,12 +125,12 @@
                     languages = {
                       zig = {
                         enable = true;
-                        lsp.enable = true;
+                        # lsp.enable = true;
                         treesitter.enable = true;
                       };
                     };
 
-                    lsp.servers.zls = {
+                    lsp.servers.zls = pkgs.lib.mkForce {
                       filetypes = ["zig"];
                       cmd = pkgs.lib.mkForce [
                         "${zigscientpkgs}/bin/zigscient"

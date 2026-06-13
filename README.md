@@ -4,6 +4,7 @@ List of things to ignore.
 
 ## TIER 1
 
+- [ ] Player spawner.
 - [ ] Add level editor/spawner view.
 - [ ] Textures.
 - [ ] Model loading.
@@ -25,6 +26,7 @@ List of things to ignore.
 
 # FIXME
 
+- [ ] Imguizmo's rotation gizmo perspective is fucked.
 - [ ] If capsule.height <= capsule.radius -> CRASH.
 - [ ] Translate tool, if avarage position changes because one or multiple bodies
       move it leads to incorrect translation.
