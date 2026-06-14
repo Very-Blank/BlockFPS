@@ -19,6 +19,7 @@ const Mat4 = math.f32.Mat4;
 
 const Window = @import("Window.zig");
 const ImGuiWindow = @import("imgui/window.zig").Window;
+const Assets = @import("Assets.zig");
 
 const Model = @import("components/model.zig").Model;
 const Position = @import("components/position.zig").Position;
@@ -272,6 +273,7 @@ pub fn update(
     self: *Self,
     ecs_engine: *Ecs,
     window: *Window,
+    assets: *Assets,
     main_camera_singleton: SingletonType,
 ) !void {
     if (self.launcher.data.views.inspector) {
@@ -282,6 +284,33 @@ pub fn update(
     if (self.launcher.data.views.editor) {
         self.launcher.data.views.editor = false;
         self.views.editor.open = true;
+    }
+
+    self.views.editor.data.assets = assets.names.items;
+
+    if (self.views.editor.data.selection) |selection| {
+        const asset = assets.assets.items[selection];
+        for (self.selections.positions.items) |position| {
+            for (asset) |object| {
+                switch (object) {
+                    .rigidbody => |value| {
+                        var offseted = value;
+                        offseted[0] = offseted[0].add(position);
+                        _ = ecs_engine.createEntity(offseted, &.{});
+                    },
+                    .staticbody => |value| {
+                        var offseted = value;
+                        offseted[0] = offseted[0].add(position);
+                        _ = ecs_engine.createEntity(offseted, &.{});
+                    },
+                    .model => |value| {
+                        var offseted = value;
+                        offseted[0] = offseted[0].add(position);
+                        _ = ecs_engine.createEntity(offseted, &.{});
+                    },
+                }
+            }
+        }
     }
 
     {
@@ -433,6 +462,8 @@ pub fn update(
                             for (self.selections.entitys.items) |entity| {
                                 const selection_position = (ecs_engine.getEntityComponent(entity, Position) orelse continue);
                                 selection_position.* = selection_position.add(change);
+
+                                (ecs_engine.getEntityComponent(entity, Rigidbody) orelse continue).velocity = .zero;
                             }
                         }
                     },

@@ -17,20 +17,11 @@ const Health = @import("components/Health.zig");
 const Bullet = @import("components/Bullet.zig");
 const Grounded = @import("components/Grounded.zig");
 
-const AssetObject = struct {
-    buffer: [100]u8,
-    len: u8,
+pub const RigidbodyObject = struct { Position, Scale, Rotation, Model, Collider, Rigidbody };
+pub const StaticbodyObject = struct { Position, Scale, Rotation, Model, Collider };
+pub const ModelObject = struct { Position, Scale, Rotation, Model };
 
-    pub fn getName(self: *const AssetObject) []const u8 {
-        return self.name.buffer[0..self.name.len];
-    }
-};
-const RigidbodyObject = struct { Position, Scale, Rotation, Model, Collider, Rigidbody };
-const StaticbodyObject = struct { Position, Scale, Rotation, Model, Collider };
-const ModelObject = struct { Position, Scale, Rotation, Model };
-
-const Type = enum {
-    AssetObject,
+pub const Type = enum {
     RigidbodyObject,
     StaticbodyObject,
     ModelObject,
@@ -38,7 +29,6 @@ const Type = enum {
     pub fn parse(value: std.json.Value) !Type {
         switch (value) {
             .string => |string| {
-                if (std.mem.eql(u8, "asset", string)) return .AssetObject;
                 if (std.mem.eql(u8, "rigidbody", string)) return .RigidbodyObject;
                 if (std.mem.eql(u8, "staticbody", string)) return .StaticbodyObject;
                 if (std.mem.eql(u8, "model", string)) return .ModelObject;
@@ -50,87 +40,67 @@ const Type = enum {
     }
 };
 
-const Object = union(enum) {
-    asset: AssetObject,
+pub const Object = union(enum) {
     rigidbody: RigidbodyObject,
     staticbody: StaticbodyObject,
     model: ModelObject,
 };
 
-pub fn parseObjects(value: std.json.Value, allocator: std.mem.Allocator) ![]Object {
+pub fn parseObjects(array: @FieldType(std.json.Value, "array"), allocator: std.mem.Allocator) ![]Object {
     var list: std.ArrayList(Object) = .empty;
     defer list.deinit(allocator);
 
-    switch (value) {
-        .array => |array| {
-            for (array.items) |item| try list.append(allocator, try parseObject(item, allocator));
-        },
+    for (array.items) |item| try list.append(allocator, try parseObject(switch (item) {
+        .object => |object| object,
         else => return error.InvalidValue,
-    }
+    }, allocator));
 
     return list.toOwnedSlice(allocator);
 }
 
-pub fn parseObject(value: std.json.Value, allocator: std.mem.Allocator) !Object {
+pub fn parseObject(object: @FieldType(std.json.Value, "object"), allocator: std.mem.Allocator) !Object {
     var arena = std.heap.ArenaAllocator.init(allocator);
     defer arena.deinit();
 
     const arena_allocator = arena.allocator();
 
-    switch (value) {
-        .object => |object| {
-            const @"type" = try Type.parse(object.get("type") orelse return error.InvalidValue);
+    const @"type" = try Type.parse(object.get("type") orelse return error.InvalidValue);
 
-            return switch (@"type") {
-                .AssetObject => .{
-                    .asset = .{
-                        .buffer = try std.json.parseFromValueLeaky([100]u8, arena_allocator, object.get("buffer") orelse return error.InvalidValue, .{
-                            .ignore_unknown_fields = true,
-                            .allocate = .alloc_if_needed,
-                        }),
-                        .len = try std.json.parseFromValueLeaky(u8, arena_allocator, object.get("len") orelse return error.InvalidValue, .{
-                            .ignore_unknown_fields = true,
-                            .allocate = .alloc_if_needed,
-                        }),
-                    },
-                },
-                .RigidbodyObject => .{
-                    .rigidbody = init: {
-                        var rigidbody: RigidbodyObject = undefined;
+    return switch (@"type") {
+        .RigidbodyObject => .{
+            .rigidbody = init: {
+                var rigidbody: RigidbodyObject = undefined;
 
-                        inline for (std.meta.fields(RigidbodyObject), 0..) |field, i| {
-                            rigidbody[i] = try parseComponent(field.type, object, arena_allocator);
-                        }
+                inline for (std.meta.fields(RigidbodyObject), 0..) |field, i| {
+                    rigidbody[i] = try parseComponent(field.type, object, arena_allocator);
+                }
 
-                        break :init rigidbody;
-                    },
-                },
-                .StaticbodyObject => .{
-                    .staticbody = init: {
-                        var staticbody: StaticbodyObject = undefined;
-
-                        inline for (std.meta.fields(StaticbodyObject), 0..) |field, i| {
-                            staticbody[i] = try parseComponent(field.type, object, arena_allocator);
-                        }
-
-                        break :init staticbody;
-                    },
-                },
-                .ModelObject => .{
-                    .model = init: {
-                        var model: ModelObject = undefined;
-
-                        inline for (std.meta.fields(ModelObject), 0..) |field, i| {
-                            model[i] = try parseComponent(field.type, object, arena_allocator);
-                        }
-
-                        break :init model;
-                    },
-                },
-            };
+                break :init rigidbody;
+            },
         },
-        else => return error.InvalidValue,
-    }
+        .StaticbodyObject => .{
+            .staticbody = init: {
+                var staticbody: StaticbodyObject = undefined;
+
+                inline for (std.meta.fields(StaticbodyObject), 0..) |field, i| {
+                    staticbody[i] = try parseComponent(field.type, object, arena_allocator);
+                }
+
+                break :init staticbody;
+            },
+        },
+        .ModelObject => .{
+            .model = init: {
+                var model: ModelObject = undefined;
+
+                inline for (std.meta.fields(ModelObject), 0..) |field, i| {
+                    model[i] = try parseComponent(field.type, object, arena_allocator);
+                }
+
+                break :init model;
+            },
+        },
+    };
 }
 
 pub fn parseComponent(comptime T: type, object: @FieldType(std.json.Value, "object"), arena: std.mem.Allocator) !T {
@@ -172,20 +142,12 @@ pub fn jsonifyObject(object: Object, allocator: std.mem.Allocator) ![]u8 {
     try json.appendSlice(allocator, "{\"type\":");
 
     try switch (object) {
-        .asset => json.appendSlice(allocator, "\"asset\""),
         .rigidbody => json.appendSlice(allocator, "\"rigidbody\""),
         .staticbody => json.appendSlice(allocator, "\"staticbody\""),
         .model => json.appendSlice(allocator, "\"model\""),
     };
 
     switch (object) {
-        .asset => |value| {
-            try json.appendSlice(allocator, ",");
-            try std.json.fmt(value, .{}).format(&object_writer);
-
-            try json.appendSlice(allocator, writer.buffered());
-            _ = writer.consumeAll();
-        },
         .rigidbody => |value| {
             inline for (std.meta.fields(RigidbodyObject), 0..) |field, i| {
                 try json.appendSlice(allocator, ",");
@@ -260,7 +222,7 @@ test "Rigidbody jsonify/parse" {
         Model{},
         Collider{ .type = .{ .box = .one } },
         Rigidbody{ .restitution = 0.5, .mass = 10.0 },
-    } }, try parseObject(json_value.value, allocator));
+    } }, try parseObject(json_value.value.object, allocator));
 }
 
 test "Staticbody jsonify/parse" {
@@ -285,7 +247,7 @@ test "Staticbody jsonify/parse" {
         Rotation.identity,
         Model{},
         Collider{ .type = .{ .box = .one } },
-    } }, try parseObject(json_value.value, allocator));
+    } }, try parseObject(json_value.value.object, allocator));
 }
 
 test "Model jsonify/parse" {
@@ -308,7 +270,7 @@ test "Model jsonify/parse" {
         Scale.one,
         Rotation.identity,
         Model{},
-    } }, try parseObject(json_value.value, allocator));
+    } }, try parseObject(json_value.value.object, allocator));
 }
 
 test "Objects parsing" {
@@ -353,7 +315,7 @@ test "Objects parsing" {
     const value = try std.json.parseFromSlice(std.json.Value, allocator, json.items, .{});
     defer value.deinit();
 
-    const objects = try parseObjects(value.value, allocator);
+    const objects = try parseObjects(value.value.array, allocator);
     defer allocator.free(objects);
 
     try std.testing.expectEqualSlices(Object, &.{ Object{ .rigidbody = .{

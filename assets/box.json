@@ -1,18 +1,28 @@
 {
     "type": "rigidbody",
-    "scale": { "x": 0, "y" : 0, "z" : 0},
-    "rotation": [1, 0, 0, 0],
-    "model": "cube",
+    "position": {"x": 0,"y": 0,"z": 0},
+    "scale": {"x": 1,"y": 1,"z": 1},
+    "rotation": {
+        "fields": [1, 0, 0, 0]
+    },
+    "model": {
+        "type": "cube",
+        "outline": {
+            "enabled": false,
+            "color": {"r": 1, "b": 1, "g": 1, "a": 1}
+        }
+    },
     "collider": {
+        "layer": "default",
+        "mask": "all",
         "type": {
-            "box": { "x": 1, "y": 1, "z": 1
-            }
+            "box": {"x": 1, "y": 1, "z": 1}
         }
     },
     "rigidbody": {
-        "velocity": { "x": 0, "y" : 0, "z": 0},
+        "velocity": {"x": 0, "y": 0, "z": 0 },
         "gravity": -9.81,
-        "mass":  1.0,
+        "mass": 10,
         "restitution": 0.5
     }
 }

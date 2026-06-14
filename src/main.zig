@@ -13,6 +13,7 @@ const Vector3 = math.f32.Vector3;
 
 const Window = @import("Window.zig");
 const DebugGui = @import("DebugGui.zig");
+const Assets = @import("Assets.zig");
 
 const Shader = @import("Shader.zig");
 const Program = @import("Program.zig");
@@ -65,13 +66,17 @@ pub fn main(init: std.process.Init) !void {
     var ecs_engine: Ecs = try .init(fba.allocator());
     defer ecs_engine.deinit();
 
+    var assets: Assets = .empty;
+    defer assets.deinit(gpa);
+    try assets.loadAll(io, gpa);
+
     var debug_gui = DebugGui.init(window, gpa);
     defer debug_gui.deinit();
 
-    const main_camera_singleton = ecs_engine.createSingleton(.{ .components = &.{ Position, Camera } });
+    const spawnp_singleton = ecs_engine.createSingleton(.{ .components = &.{Position} });
+    const camera_singleton = ecs_engine.createSingleton(.{ .components = &.{ Position, Camera } });
     const player_singleton = ecs_engine.createSingleton(.{ .components = &.{ Position, Rigidbody, Grounded, Camera } });
-    const cam_singleton = ecs_engine.createSingleton(.{ .components = &.{ Position, Camera } });
-
+    const flycam_singleton = ecs_engine.createSingleton(.{ .components = &.{ Position, Camera } });
     const target = ecs_engine.createSingleton(.{ .components = &.{ Position, Collider } });
 
     var physics: Physics = .init(gpa);
@@ -79,43 +84,7 @@ pub fn main(init: std.process.Init) !void {
 
     makeArena(&ecs_engine, 50.0);
 
-    const cam_entity = ecs_engine.createEntity(.{
-        Position{ .x = -3, .y = 1.1 },
-        Camera{
-            .offset = 0.75,
-            .projection = .{
-                .mat = .initPerspective(90.0, @as(f32, @floatFromInt(window.logical.width)) / @as(f32, @floatFromInt(window.logical.height)), 1000.0, 0.001),
-                .far = 1000.0,
-                .near = 0.001,
-                .fov = 90,
-            },
-            .rotation = .{ .pitch = 0.0, .yaw = 0.0 },
-        },
-    }, &.{});
-
-    ecs_engine.setSingletonsEntity(cam_singleton, cam_entity) catch unreachable;
-
-    const player_entity = ecs_engine.createEntity(.{
-        Health{ .current = 50.0, .max = 50.0 },
-        Position{ .x = -3, .y = 1.1 },
-        Rigidbody{ .mass = 5.0, .restitution = 0.0 },
-        Collider{ .type = .{ .capsule = .{ .radius = 0.25, .half_height = 1 } }, .layer = .player },
-        Grounded{ .grounded = false },
-        Camera{
-            .offset = 0.75,
-            .projection = .{
-                .mat = .initPerspective(90.0, @as(f32, @floatFromInt(window.logical.width)) / @as(f32, @floatFromInt(window.logical.height)), 1000.0, 0.001),
-                .far = 1000.0,
-                .near = 0.001,
-                .fov = 90,
-            },
-            .rotation = .{ .pitch = 0.0, .yaw = 0.0 },
-        },
-    }, &.{});
-
-    ecs_engine.setSingletonsEntity(main_camera_singleton, player_entity) catch unreachable;
-    ecs_engine.setSingletonsEntity(player_singleton, player_entity) catch unreachable;
-    ecs_engine.setSingletonsEntity(target, player_entity) catch unreachable;
+    try ecs_engine.setSingletonsEntity(spawnp_singleton, ecs_engine.createEntity(.{Position{ .x = 2.0, .y = 2.0, .z = 2.0 }}, &.{}));
 
     var lapsed_time: f64 = 0.0;
     var ignore_input: bool = false;
@@ -130,6 +99,8 @@ pub fn main(init: std.process.Init) !void {
 
             break :outer @floatCast(delta_time);
         };
+
+        respawn(&ecs_engine, &window, player_singleton, flycam_singleton, spawnp_singleton, target);
 
         if (!debug_gui.launcher.data.game.freeze) {
             physics.update(&ecs_engine, delta_time);
@@ -157,7 +128,7 @@ pub fn main(init: std.process.Init) !void {
                     handlePlayerInput(&ecs_engine, &window, player_singleton);
                 },
                 .cam => {
-                    handleCamInput(&ecs_engine, &window, cam_singleton, delta_time);
+                    handleCamInput(&ecs_engine, &window, flycam_singleton, delta_time);
                 },
             }
         } else if (ecs_engine.getSingletonsEntity(player_singleton)) |id| {
@@ -177,12 +148,12 @@ pub fn main(init: std.process.Init) !void {
         switch (debug_gui.launcher.data.game.mode) {
             .normal => {
                 if (ecs_engine.getSingletonsEntity(player_singleton)) |id| {
-                    ecs_engine.setSingletonsEntity(main_camera_singleton, id) catch unreachable;
+                    ecs_engine.setSingletonsEntity(camera_singleton, id) catch unreachable;
                 }
             },
             .cam => {
-                if (ecs_engine.getSingletonsEntity(cam_singleton)) |id| {
-                    ecs_engine.setSingletonsEntity(main_camera_singleton, id) catch unreachable;
+                if (ecs_engine.getSingletonsEntity(flycam_singleton)) |id| {
+                    ecs_engine.setSingletonsEntity(camera_singleton, id) catch unreachable;
                 }
             },
         }
@@ -190,9 +161,9 @@ pub fn main(init: std.process.Init) !void {
         if (!debug_gui.launcher.data.game.freeze)
             enemies.update(&ecs_engine, target, random, delta_time);
 
-        rendering.render(&ecs_engine, main_camera_singleton);
+        rendering.render(&ecs_engine, camera_singleton);
 
-        try debug_gui.update(&ecs_engine, &window, main_camera_singleton);
+        try debug_gui.update(&ecs_engine, &window, &assets, camera_singleton);
 
         update_view: {
             var iterator = ecs_engine.getIterator(.{ .component = Camera }) orelse break :update_view;
@@ -247,6 +218,61 @@ pub fn main(init: std.process.Init) !void {
         ecs_engine.clearDestroyedEntitys();
 
         window.swapAndPoll();
+    }
+}
+
+pub fn respawn(
+    ecs_engine: *Ecs,
+    window: *Window,
+    player_singleton: SingletonType,
+    flycam_singleton: SingletonType,
+    spawnp_singleton: SingletonType,
+    target: SingletonType,
+) void {
+    const spawn_point: Position = (ecs_engine.getEntityComponent(
+        ecs_engine.getSingletonsEntity(spawnp_singleton) orelse return,
+        Position,
+    ) orelse return).*;
+
+    if (ecs_engine.getSingletonsEntity(player_singleton) == null) {
+        const player_entity = ecs_engine.createEntity(.{
+            Health{ .current = 50.0, .max = 50.0 },
+            spawn_point,
+            Rigidbody{ .mass = 5.0, .restitution = 0.0 },
+            Collider{ .type = .{ .capsule = .{ .radius = 0.25, .half_height = 1 } }, .layer = .player },
+            Grounded{ .grounded = false },
+            Camera{
+                .offset = 0.75,
+                .projection = .{
+                    .mat = .initPerspective(90.0, @as(f32, @floatFromInt(window.logical.width)) / @as(f32, @floatFromInt(window.logical.height)), 1000.0, 0.001),
+                    .far = 1000.0,
+                    .near = 0.001,
+                    .fov = 90,
+                },
+                .rotation = .{ .pitch = 0.0, .yaw = 0.0 },
+            },
+        }, &.{});
+
+        ecs_engine.setSingletonsEntity(player_singleton, player_entity) catch unreachable;
+        ecs_engine.setSingletonsEntity(target, player_entity) catch unreachable;
+    }
+
+    if (ecs_engine.getSingletonsEntity(flycam_singleton) == null) {
+        const flycam_entity = ecs_engine.createEntity(.{
+            spawn_point,
+            Camera{
+                .offset = 0.75,
+                .projection = .{
+                    .mat = .initPerspective(90.0, @as(f32, @floatFromInt(window.logical.width)) / @as(f32, @floatFromInt(window.logical.height)), 1000.0, 0.001),
+                    .far = 1000.0,
+                    .near = 0.001,
+                    .fov = 90,
+                },
+                .rotation = .{ .pitch = 0.0, .yaw = 0.0 },
+            },
+        }, &.{});
+
+        ecs_engine.setSingletonsEntity(flycam_singleton, flycam_entity) catch unreachable;
     }
 }
 

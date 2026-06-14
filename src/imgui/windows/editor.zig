@@ -25,8 +25,8 @@ const Bullet = @import("../../components/Bullet.zig");
 const Enemy = @import("../../components/Enemy.zig");
 
 pub const EditorData = struct {
-    assets: []const [:0]const u8 = &.{ "block", "gun", "sniper", "gunman" },
-    current: u32 = 0,
+    assets: []const [:0]const u8 = &.{},
+    selection: ?u32 = null,
 };
 
 pub const Editor = Window(EditorData);
@@ -35,8 +35,14 @@ pub const init: Editor = .{
     .name = "Editor",
     .data = .{},
     .draw_fn = struct {
-        pub fn draw(_: *EditorData, _: *imgui.ImFont) void {
-            imgui.ImGui_Text("Hello\n");
+        pub fn draw(self: *EditorData, _: *imgui.ImFont) void {
+            for (self.assets, 0..) |asset, i| {
+                if (imgui.ImGui_ButtonEx(asset, .{ .x = -imgui.__FLT_MIN__ })) {
+                    self.selection = @intCast(i);
+                } else {
+                    self.selection = null;
+                }
+            }
         }
     }.draw,
 };
