@@ -24,6 +24,7 @@ pub fn build(b: *std.Build) void {
 
     const math_dependency = b.dependency("ZigMath", .{ .target = target, .optimize = optimize });
     const ecs_dependency = b.dependency("ECS", .{ .target = target, .optimize = optimize });
+    const qoi_dependency = b.dependency("ZigQoi", .{ .target = target, .optimize = optimize });
 
     const glad_path = b.path("libs/glad/");
 
@@ -128,6 +129,7 @@ pub fn build(b: *std.Build) void {
                     imgui_translate,
                     .{ .name = "math", .module = math_dependency.module("zigmath") },
                     .{ .name = "ecs", .module = ecs_dependency.module("ecs") },
+                    .{ .name = "qoi", .module = qoi_dependency.module("zigqoi") },
                 },
             });
 

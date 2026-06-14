@@ -1,5 +1,6 @@
 pub const Model = struct {
     type: Type = .cube,
+    texture: Texture = .missing,
 
     // I know, I know, this is just for debug ... and def wont be final ...
     outline: struct {
@@ -9,6 +10,11 @@ pub const Model = struct {
 
     pub const Type = enum(u8) {
         cube = 0,
+        _,
+    };
+
+    pub const Texture = enum(u8) {
+        missing = 0,
         _,
     };
 };

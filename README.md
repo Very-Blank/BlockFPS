@@ -4,7 +4,6 @@ List of things to ignore.
 
 ## TIER 1
 
-- [ ] Textures.
 - [ ] Model loading.
 - [ ] Saving and loading.
 
@@ -16,6 +15,7 @@ List of things to ignore.
 
 ## DONE
 
+- [x] Textures.
 - [x] Player spawner.
 - [x] Add basic level editor/spawner view.
 - [x] Add proper icon font.

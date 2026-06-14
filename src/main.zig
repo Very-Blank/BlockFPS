@@ -298,6 +298,11 @@ pub fn handleCollision(physics: *Physics, ecs_engine: *Ecs) void {
                 (ecs_engine.getEntityComponent(@field(collision, fields.self), Grounded) orelse break :grounded).grounded = true;
             }
 
+            grounded: {
+                if (physics.rbVsRb_infos.items[i].normal.negate().dot(Vector3.up) < 0.9) break :grounded;
+                (ecs_engine.getEntityComponent(@field(collision, fields.other), Grounded) orelse break :grounded).grounded = true;
+            }
+
             bullet: {
                 const bullet = ecs_engine.getEntityComponent(@field(collision, fields.self), Bullet) orelse break :bullet;
                 vision: {

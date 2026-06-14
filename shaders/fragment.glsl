@@ -1,11 +1,10 @@
 #version 410 core
 
-uniform sampler2D image;
+uniform sampler2D texture_image;
 
-
-in vec3 vertex_color;
+in vec2 texture_coordinate;
 out vec4 fragment_color;
 
 void main() {
-    fragment_color = vec4(vertex_color, 1.0);
+    fragment_color = texture(texture_image, texture_coordinate);
 }

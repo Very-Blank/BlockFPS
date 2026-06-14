@@ -7,8 +7,9 @@ const Io = std.Io;
 
 const Shader = @import("Shader.zig");
 const Program = @import("Program.zig");
-
 const Model = @import("Model.zig");
+const Texture = @import("Texture.zig");
+
 const ModelComponent = @import("components/model.zig").Model;
 const Position = @import("components/position.zig").Position;
 const Rotation = @import("components/rotation.zig").Rotation;
@@ -23,6 +24,7 @@ programs: struct {
     outline: Program,
 },
 models: [1]Model,
+textures: [1]Texture,
 
 const Self = @This();
 
@@ -39,6 +41,9 @@ pub fn init(io: Io, allocator: std.mem.Allocator) !Self {
         },
         .models = .{
             Model.init(Model.cube),
+        },
+        .textures = .{
+            try Texture.init("textures/missing.qoi", .nearest, io, allocator),
         },
     };
 }
@@ -103,6 +108,7 @@ pub fn render(self: *const Self, ecs_engine: *Ecs, player_singleton: SingletonTy
         }) orelse break :render;
 
         const main_model_location = self.programs.main.getUniform("model");
+
         const outline_model_location = self.programs.outline.getUniform("model");
         const outline_scale_location = self.programs.outline.getUniform("scale");
         const outline_color_location = self.programs.outline.getUniform("color");
@@ -136,9 +142,25 @@ pub fn render(self: *const Self, ecs_engine: *Ecs, player_singleton: SingletonTy
                 self.programs.main.use();
             }
 
+            switch (model.texture) {
+                .missing => {
+                    glad.glActiveTexture(glad.GL_TEXTURE0);
+                    self.textures[0].bind();
+                },
+                _ => {
+                    glad.glActiveTexture(glad.GL_TEXTURE0);
+                    self.textures[0].bind();
+
+                    std.debug.print("Invalid texture used.\n", .{});
+                },
+            }
+
             switch (model.type) {
                 .cube => self.models[0].draw(),
-                _ => self.models[0].draw(),
+                _ => {
+                    self.models[0].draw();
+                    std.debug.print("Invalid model used.\n", .{});
+                },
             }
         }
     }

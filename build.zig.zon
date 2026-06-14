@@ -52,6 +52,10 @@
             .url = "git+https://github.com/Very-Blank/dear_bindings.git#2289dd9dfab5a2f786e0de59e6830da9af1edbaf",
             .hash = "dear_bindings-0.16.0-WUVLV-taCADKqpNoZ6hb-1sIP_7wLIBZnH3Y65ZB_VN-",
         },
+        .ZigQoi = .{
+            .url = "git+https://github.com/Very-Blank/ZigQoi.git#c1c3ed9d63c3e93b29fcc3a3db61153c9b5f5ab2",
+            .hash = "ZigQoi-1.0.0-SwmqA_iFAADdlyeBP_nx__WuUw5BZthCViDRuHuxBIGw",
+        },
     },
     .paths = .{
         "build.zig",
