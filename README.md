@@ -15,6 +15,7 @@ List of things to ignore.
 
 ## DONE
 
+- [x] Friction.
 - [x] Textures.
 - [x] Player spawner.
 - [x] Add basic level editor/spawner view.

@@ -167,7 +167,10 @@ pub fn simulateSbRb(
                     break :init 0;
                 };
 
-                body1_rb.velocity = body1_rb.velocity.subtract(normal.scale(dot).scale(1.0 + body1_rb.restitution));
+                body1_rb.velocity = body1_rb.velocity
+                    .scale(1 - body1_rb.friction)
+                    .subtract(normal.scale(dot)
+                    .scale(1 + body1_rb.restitution - body1_rb.friction));
 
                 if (!self.hasCollision(rigidbodies.getCurrentEntity(), staticbodies.getCurrentEntity())) {
                     self.sbVsRb_collisions.append(self.allocator, .{
@@ -231,6 +234,7 @@ pub fn simulateRb(self: *Self, delta_time: f32, iterator: *Ecs.TupleIterator(.{
                 if (0 <= body1_rb.velocity.subtract(body2_rb.velocity).dot(normal)) continue;
 
                 const e = (body1_rb.restitution + body2_rb.restitution) / 2.0;
+                const u = (body1_rb.friction + body2_rb.friction) / 2.0;
 
                 const angle1: f32 = init: {
                     const length = body1_rb.velocity.length();
@@ -250,8 +254,11 @@ pub fn simulateRb(self: *Self, delta_time: f32, iterator: *Ecs.TupleIterator(.{
                 const @"m_1*v_1 + m_2*v_1" = v_1.scale(body1_rb.mass).add(v_2.scale(body2_rb.mass));
                 const @"m_1+m_2" = body1_rb.mass + body2_rb.mass;
 
-                body1_rb.velocity = body1_rb.velocity.subtract(v_1).add(@"m_1*v_1 + m_2*v_1".add(v_2.subtract(v_1).scale(e * body2_rb.mass)).segment(@"m_1+m_2"));
-                body2_rb.velocity = body2_rb.velocity.subtract(v_2).add(@"m_1*v_1 + m_2*v_1".add(v_1.subtract(v_2).scale(e * body1_rb.mass)).segment(@"m_1+m_2"));
+                const u_1 = body1_rb.velocity.subtract(v_1).scale(u);
+                const u_2 = body2_rb.velocity.subtract(v_2).scale(u);
+
+                body1_rb.velocity = body1_rb.velocity.subtract(v_1).add(@"m_1*v_1 + m_2*v_1".add(v_2.subtract(v_1).scale(e * body2_rb.mass)).segment(@"m_1+m_2")).subtract(u_1);
+                body2_rb.velocity = body2_rb.velocity.subtract(v_2).add(@"m_1*v_1 + m_2*v_1".add(v_1.subtract(v_2).scale(e * body1_rb.mass)).segment(@"m_1+m_2")).subtract(u_2);
 
                 if (!self.hasCollision(iterator.getCurrentEntity(), inner_iterator.getCurrentEntity())) {
                     self.rbVsRb_collisions.append(self.allocator, .{

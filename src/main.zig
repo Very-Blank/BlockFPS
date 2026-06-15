@@ -413,7 +413,7 @@ pub fn handlePlayerInput(ecs_engine: *Ecs, window: *Window, player_singleton: Si
                 Scale{ .x = 0.1, .y = 0.1, .z = 0.1 },
                 Rotation.identity,
                 Model{},
-                Collider{ .type = .{ .sphere = .{ .radius = 0.5 } } },
+                Collider{ .type = .{ .sphere = .{ .radius = 0.1 } } },
                 Rigidbody{ .velocity = forward.scale(50.0), .gravity = 0.0, .restitution = 0.0, .mass = 0.1 },
             }, &.{});
         }
