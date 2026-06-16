@@ -39,6 +39,8 @@ List of things to ignore.
 
 # FIXME
 
+- [ ] Disable and gray out inspector properties when not in select mode.
+- [ ] Hide outline from model properties.
 - [ ] Imguizmo's rotation gizmo perspective is fucked.
 - [ ] If capsule.height <= capsule.radius -> CRASH.
 - [ ] Closing the launcher from close button doesn't clear highlight's and
