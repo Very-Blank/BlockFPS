@@ -56,6 +56,10 @@
             .url = "git+https://github.com/Very-Blank/ZigQoi.git#c1c3ed9d63c3e93b29fcc3a3db61153c9b5f5ab2",
             .hash = "ZigQoi-1.0.0-SwmqA_iFAADdlyeBP_nx__WuUw5BZthCViDRuHuxBIGw",
         },
+        .slime = .{
+            .url = "git+https://github.com/Very-Blank/Slime.git#b022026363f560d2b5a243e1eb0942852d74ab06",
+            .hash = "slime-0.0.0-MffdZPoVAABCrfcWmQ3awhzUsrz494FxGZ4Lt2EUhLXX",
+        },
     },
     .paths = .{
         "build.zig",

@@ -23,7 +23,7 @@ programs: struct {
     main: Program,
     outline: Program,
 },
-models: [1]Model,
+models: [2]Model,
 textures: [1]Texture,
 
 const Self = @This();
@@ -34,6 +34,14 @@ pub fn init(io: Io, allocator: std.mem.Allocator) !Self {
     const outline = try createProgram(io, "shaders/outline_vertex.glsl", "shaders/outline_fragment.glsl", allocator);
     errdefer outline.destroy();
 
+    const monkey = init: {
+        const buffer = try Io.Dir.cwd().readFileAlloc(io, "models/monkey.slime", allocator, .unlimited);
+        defer allocator.free(buffer);
+
+        break :init try Model.Data.init(buffer, allocator);
+    };
+    defer monkey.deinit(allocator);
+
     return .{
         .programs = .{
             .main = main,
@@ -41,6 +49,7 @@ pub fn init(io: Io, allocator: std.mem.Allocator) !Self {
         },
         .models = .{
             Model.init(Model.cube),
+            Model.init(monkey),
         },
         .textures = .{
             try Texture.init("textures/missing.qoi", .nearest, io, allocator),
@@ -134,8 +143,8 @@ pub fn render(self: *const Self, ecs_engine: *Ecs, player_singleton: SingletonTy
                 glad.glCullFace(glad.GL_FRONT);
 
                 switch (model.type) {
-                    .cube => self.models[0].draw(),
                     _ => self.models[0].draw(),
+                    else => self.models[@intFromEnum(model.type)].draw(),
                 }
 
                 glad.glCullFace(glad.GL_BACK);
@@ -156,11 +165,8 @@ pub fn render(self: *const Self, ecs_engine: *Ecs, player_singleton: SingletonTy
             }
 
             switch (model.type) {
-                .cube => self.models[0].draw(),
-                _ => {
-                    self.models[0].draw();
-                    std.debug.print("Invalid model used.\n", .{});
-                },
+                _ => self.models[0].draw(),
+                else => self.models[@intFromEnum(model.type)].draw(),
             }
         }
     }

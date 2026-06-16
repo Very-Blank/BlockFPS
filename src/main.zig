@@ -486,10 +486,10 @@ pub fn makeArena(ecs_engine: *Ecs, size: f32) void {
 
     _ = ecs_engine.createEntity(.{
         Position.zero,
-        Scale.one,
+        Scale{ .x = 1.5, .y = 1.5, .z = 1.5 },
         Rotation.identity,
-        Model{},
-        Collider{ .type = .{ .box = .one } },
+        Model{ .type = .monkey },
+        Collider{ .type = .{ .box = .{ .x = 2.5, .y = 2.5, .z = 2.5 } } },
         Rigidbody{ .restitution = 0.5, .mass = 10.0 },
     }, &.{});
 

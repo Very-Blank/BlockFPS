@@ -10,6 +10,7 @@ pub const Model = struct {
 
     pub const Type = enum(u8) {
         cube = 0,
+        monkey = 1,
         _,
     };
 

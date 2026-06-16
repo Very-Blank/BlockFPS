@@ -1,6 +1,9 @@
 const math = @import("math");
 const std = @import("std");
 const glad = @import("glad");
+const slime = @import("slime");
+
+const Io = std.Io;
 
 vao: u32,
 ebo: u32,
@@ -18,6 +21,31 @@ pub const Vertex = struct {
 pub const Data = struct {
     vertices: []const Vertex,
     indices: []const u32,
+
+    pub fn init(buffer: []const u8, allocator: std.mem.Allocator) !Data {
+        const data = try slime.decode(buffer, allocator);
+        errdefer data.deinit(allocator);
+        const vertices = try allocator.alloc(Vertex, data.positions.len);
+
+        defer {
+            allocator.free(data.positions);
+            allocator.free(data.normals);
+            allocator.free(data.uvs);
+        }
+
+        for (0..vertices.len) |i| {
+            vertices[i].position = data.positions[i];
+            vertices[i].normal = data.normals[i];
+            vertices[i].texture_coordinate = data.uvs[i];
+        }
+
+        return .{ .vertices = vertices, .indices = data.indices };
+    }
+
+    pub fn deinit(self: *const Data, allocator: std.mem.Allocator) void {
+        allocator.free(self.vertices);
+        allocator.free(self.indices);
+    }
 };
 
 pub const cube: Data = .{

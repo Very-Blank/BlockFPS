@@ -4,17 +4,28 @@ List of things to ignore.
 
 ## TIER 1
 
-- [ ] Model loading.
-- [ ] Saving and loading.
+- [ ] Test level with enemies.
+  - [ ] Saving and loading.
+  - [ ] Basic assets
+    - [ ] Textures
+    - [ ] Models
+
+- [ ] Player
+  - [ ] Inventory
+  - [ ] Items
 
 ## TIER 2
 
+- [ ] Make box colliders handle rotation.
+- [ ] Sounds
 - [ ] Cheats like god mode etc.
 - [ ] Proper outlines.
+- [ ] Lighting
 - [ ] Add tracy!
 
 ## DONE
 
+- [x] Model loading.
 - [x] Friction.
 - [x] Textures.
 - [x] Player spawner.
@@ -30,6 +41,8 @@ List of things to ignore.
 
 - [ ] Imguizmo's rotation gizmo perspective is fucked.
 - [ ] If capsule.height <= capsule.radius -> CRASH.
+- [ ] Closing the launcher from close button doesn't clear highlight's and
+      probably also selections.
 
 ## BUGS POISONED
 
