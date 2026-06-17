@@ -411,6 +411,8 @@ pub fn update(
 
         switch (self.launcher.data.tool.type) {
             .select => {
+                self.views.inspector.data.enabled = true;
+
                 if (self.views.inspector.open) {
                     self.syncInspector(ecs_engine, .set);
                 } else {
@@ -514,6 +516,7 @@ pub fn update(
                     else => unreachable,
                 }
 
+                self.views.inspector.data.enabled = false;
                 self.syncInspector(ecs_engine, .copy);
             },
         }

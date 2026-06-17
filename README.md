@@ -39,12 +39,12 @@ List of things to ignore.
 
 # FIXME
 
-- [ ] Disable and gray out inspector properties when not in select mode.
-- [ ] Hide outline from model properties.
 - [ ] Imguizmo's rotation gizmo perspective is fucked.
 - [ ] If capsule.height <= capsule.radius -> CRASH.
-- [ ] Closing the launcher from close button doesn't clear highlight's and
-      probably also selections.
+- [ ] Closing the launcher from close button:
+  - [ ] Doesn't clear highlight's and probably also selections.
+  - [ ] Doesn't remove gizmos/leaves the current tool on.
+  - [ ] Doesn't enable inspector.
 
 ## BUGS POISONED
 
@@ -57,6 +57,8 @@ velocity.y = 0
 
 ## BUGS SQUASHED
 
+- [x] Disable and gray out inspector properties when not in select mode.
+- [x] Hide outline from model properties.
 - [x] Selection highlight incorrect.
 - [x] Only syncInspector(true) if the window is open.
 - [x] Pressing ecs again closes debug windows!

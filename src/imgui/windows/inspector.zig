@@ -32,6 +32,8 @@ pub const InspectorData = struct {
         };
     }
 
+    enabled: bool = true,
+
     position: Value(Position) = .{ .value = .zero },
     rotation: Value(Rotation) = .{ .value = .identity },
     scale: Value(Scale) = .{ .value = .zero },
@@ -49,6 +51,9 @@ pub const init: Inspector = .{
     .data = .{},
     .draw_fn = struct {
         pub fn draw(data: *InspectorData, _: *imgui.ImFont) void {
+            imgui.ImGui_BeginDisabled(!data.enabled);
+            defer imgui.ImGui_EndDisabled();
+
             {
                 imgui.ImGui_PushItemWidth(standards.width);
                 defer imgui.ImGui_PopItemWidth();
@@ -85,18 +90,6 @@ pub const init: Inspector = .{
                 defer imgui.ImGui_Unindent();
 
                 help.enumSelector(Model.Type, &data.model.value.type, "Type##Model");
-
-                imgui.ImGui_Text("Outline");
-                {
-                    imgui.ImGui_Indent();
-                    defer imgui.ImGui_Unindent();
-
-                    _ = imgui.ImGui_Checkbox("Outline##Model", &data.model.value.outline.enabled);
-                    _ = imgui.ImGui_DragFloatEx("R##rot", @ptrCast(&data.model.value.outline.color.r), 0.005, 0.0, 1.0, "%.3f", 0);
-                    _ = imgui.ImGui_DragFloatEx("G##rot", @ptrCast(&data.model.value.outline.color.g), 0.005, 0.0, 1.0, "%.3f", 0);
-                    _ = imgui.ImGui_DragFloatEx("B##rot", @ptrCast(&data.model.value.outline.color.g), 0.005, 0.0, 1.0, "%.3f", 0);
-                    _ = imgui.ImGui_DragFloatEx("A##rot", @ptrCast(&data.model.value.outline.color.b), 0.005, 0.0, 1.0, "%.3f", 0);
-                }
             }
 
             if (data.collider.has and imgui.ImGui_CollapsingHeader("Collider", 0)) {
