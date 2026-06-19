@@ -157,6 +157,7 @@
 
         shellHook = ''
           ${pkgs.lib.getExe' tmux "tmux"}
+          exit
         '';
       };
   };

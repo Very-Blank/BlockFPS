@@ -35,12 +35,11 @@ const Health = @import("components/Health.zig");
 const Bullet = @import("components/Bullet.zig");
 const Enemy = @import("components/Enemy.zig");
 
-const Tools = struct {
-    editor: editor.Editor = editor.init,
-    inspector: inspector.Inspector = inspector.init,
+const View = struct {
+    name: []const u8,
+    open: bool = false,
+    flags: i32 = 0,
 };
-
-const tool_fields = @typeInfo(Tools).@"struct".fields;
 
 const inspected = .{
     .{ .name = "position", .type = Position },
@@ -56,47 +55,83 @@ const inspected = .{
 io: *imgui.struct_ImGuiIO_t,
 context: *imgui.ImGuiContext,
 icon_font: *imgui.ImFont,
-launcher: launch.Launcher = launch.init,
-views: Tools = .{},
-open_states: [tool_fields.len]bool = .{false} ** tool_fields.len,
-selections: struct {
-    positions: std.ArrayList(Vector3),
-    entitys: std.ArrayList(EntityPointer),
+views: struct {
+    main: View = .{ .name = "Main" },
+    inspector: View = .{ .name = "Inspector" },
+    editor: View = .{ .name = "Editor" },
 },
-gizmo_last_value: struct {
-    position: Position = .zero,
-    rotation: Rotation = .identity,
-    scale: Scale = .one,
-} = .{},
+game: struct {
+    freeze: bool = false,
+    mode: enum(u32) { normal = 0, cam = 1 } = .normal,
+},
+tool: struct {
+    type: enum { select, move, rotate, scale } = .select,
+    changed: bool = false,
+},
 state: enum {
     just_opened,
     open,
     just_closed,
     closed,
-
-    pub inline fn isOpen(state: @This()) bool {
-        return (state == .just_opened or state == .open);
-    }
-
-    pub inline fn update(self: *@This(), is_open: bool) void {
-        if (is_open) {
-            self.* = switch (self.*) {
-                .just_opened, .open => .open,
-                else => .just_opened,
-            };
-
-            return;
-        }
-
-        self.* = switch (self.*) {
-            .just_opened, .open => .just_closed,
-            else => .closed,
-        };
-    }
 } = .closed,
+selections: struct {
+    positions: std.ArrayList(Vector3),
+    entitys: std.ArrayList(EntityPointer),
+
+    pub fn clearEntitySelections(self: *@This(), ecs_engine: *Ecs) void {
+        self.setEntityOutlines(ecs_engine, .all, false);
+        self.entitys.clearRetainingCapacity();
+    }
+
+    pub fn setEntityOutlines(self: *@This(), ecs_engine: *Ecs, which: enum { primary, all }, enabled: bool) void {
+        if (self.entitys.items.len == 0) return;
+        switch (which) {
+            .primary => {
+                var i: usize = 0;
+                while (i < self.entitys.items.len - 1) : (i += 1) {
+                    const entity = self.entitys.items[i];
+                    (ecs_engine.getEntityComponent(entity, Model) orelse continue).outline = .{
+                        .enabled = enabled,
+                        .color = .{ .r = 0.5, .b = 0.5, .g = 0.5 },
+                    };
+                }
+
+                set_primary: {
+                    (ecs_engine.getEntityComponent(self.entitys.getLast(), Model) orelse break :set_primary).outline = .{
+                        .enabled = enabled,
+                        .color = .{},
+                    };
+                }
+            },
+            .all => {
+                var i: usize = 0;
+                while (i < self.entitys.items.len - 1) : (i += 1) {
+                    const entity = self.entitys.items[i];
+                    (ecs_engine.getEntityComponent(entity, Model) orelse continue).outline = .{
+                        .enabled = enabled,
+                        .color = .{},
+                    };
+                }
+
+                set_primary: {
+                    (ecs_engine.getEntityComponent(self.entitys.getLast(), Model) orelse break :set_primary).outline = .{
+                        .enabled = enabled,
+                        .color = .{},
+                    };
+                }
+            },
+        }
+    }
+
+    pub fn clearPositionSelections(self: *@This()) void {
+        self.positions.clearRetainingCapacity();
+    }
+},
 allocator: std.mem.Allocator,
 
 const Self = @This();
+
+pub const width = 150.0;
 
 pub fn init(window: Window, allocator: std.mem.Allocator) Self {
     var new_imgui: Self = .{
@@ -186,88 +221,6 @@ pub fn deinit(self: *Self) void {
     self.io = undefined;
 }
 
-pub fn open(self: *Self) void {
-    self.launcher.open = true;
-
-    inline for (tool_fields, 0..) |field, i| {
-        @field(self.views, field.name).open = self.open_states[i];
-    }
-
-    self.state.update(true);
-}
-
-pub fn close(self: *Self, ecs_engine: *Ecs) void {
-    self.launcher.open = false;
-
-    inline for (inspected) |field| {
-        @field(self.views.inspector.data, field.name).has = false;
-    }
-
-    self.clearEntitySelections(ecs_engine);
-    self.clearPositionSelections();
-
-    inline for (tool_fields, 0..) |field, i| {
-        self.open_states[i] = @field(self.views, field.name).open;
-        @field(self.views, field.name).open = false;
-    }
-
-    self.state.update(false);
-}
-
-pub fn clearEntitySelections(self: *Self, ecs_engine: *Ecs) void {
-    self.setEntityOutlines(ecs_engine, .all, false);
-    self.selections.entitys.clearRetainingCapacity();
-}
-
-pub fn clearPositionSelections(self: *Self) void {
-    self.selections.positions.clearRetainingCapacity();
-}
-
-pub fn setEntityOutlines(self: *Self, ecs_engine: *Ecs, which: enum { primary, all }, enabled: bool) void {
-    if (self.selections.entitys.items.len == 0) return;
-    switch (which) {
-        .primary => {
-            var i: usize = 0;
-            while (i < self.selections.entitys.items.len - 1) : (i += 1) {
-                const entity = self.selections.entitys.items[i];
-                (ecs_engine.getEntityComponent(entity, Model) orelse continue).outline = .{
-                    .enabled = enabled,
-                    .color = .{ .r = 0.5, .b = 0.5, .g = 0.5 },
-                };
-            }
-
-            set_primary: {
-                (ecs_engine.getEntityComponent(self.selections.entitys.getLast(), Model) orelse break :set_primary).outline = .{
-                    .enabled = enabled,
-                    .color = .{},
-                };
-            }
-        },
-        .all => {
-            var i: usize = 0;
-            while (i < self.selections.entitys.items.len - 1) : (i += 1) {
-                const entity = self.selections.entitys.items[i];
-                (ecs_engine.getEntityComponent(entity, Model) orelse continue).outline = .{
-                    .enabled = enabled,
-                    .color = .{},
-                };
-            }
-
-            set_primary: {
-                (ecs_engine.getEntityComponent(self.selections.entitys.getLast(), Model) orelse break :set_primary).outline = .{
-                    .enabled = enabled,
-                    .color = .{},
-                };
-            }
-        },
-    }
-
-    self.views.inspector.data.model.value.outline = .{
-        .enabled = enabled,
-        .color = .{},
-    };
-}
-
 // Returns true if any of the debug windows are open.
 pub fn update(
     self: *Self,
@@ -276,42 +229,7 @@ pub fn update(
     assets: *Assets,
     main_camera_singleton: SingletonType,
 ) !void {
-    if (self.launcher.data.views.inspector) {
-        self.launcher.data.views.inspector = false;
-        self.views.inspector.open = true;
-    }
-
-    if (self.launcher.data.views.editor) {
-        self.launcher.data.views.editor = false;
-        self.views.editor.open = true;
-    }
-
-    self.views.editor.data.assets = assets.names.items;
-
-    if (self.views.editor.data.selection) |selection| {
-        const asset = assets.assets.items[selection];
-        for (self.selections.positions.items) |position| {
-            for (asset) |object| {
-                switch (object) {
-                    .rigidbody => |value| {
-                        var offseted = value;
-                        offseted[0] = offseted[0].add(position);
-                        _ = ecs_engine.createEntity(offseted, &.{});
-                    },
-                    .staticbody => |value| {
-                        var offseted = value;
-                        offseted[0] = offseted[0].add(position);
-                        _ = ecs_engine.createEntity(offseted, &.{});
-                    },
-                    .model => |value| {
-                        var offseted = value;
-                        offseted[0] = offseted[0].add(position);
-                        _ = ecs_engine.createEntity(offseted, &.{});
-                    },
-                }
-            }
-        }
-    }
+    if (self.state == .closed or self.state == .just_closed) return;
 
     {
         var copy = false;
@@ -324,8 +242,6 @@ pub fn update(
                 i += 1;
             }
         }
-
-        if (copy) self.syncInspector(ecs_engine, .copy);
     }
 
     if (!self.io.WantCaptureMouse and window.input.mouse_state.left_click == .justPressed) {
@@ -385,8 +301,6 @@ pub fn update(
 
                         try self.selections.entitys.append(self.allocator, raycast_result.body);
                     }
-
-                    self.syncInspector(ecs_engine, .copy);
                 } else if (window.input.getKeyState(.left_shift).isDown()) {
                     self.clearEntitySelections(ecs_engine);
                     try self.selections.positions.append(self.allocator, raycast_result.position.coerce(Vector3));
@@ -412,12 +326,6 @@ pub fn update(
         switch (self.launcher.data.tool.type) {
             .select => {
                 self.views.inspector.data.enabled = true;
-
-                if (self.views.inspector.open) {
-                    self.syncInspector(ecs_engine, .set);
-                } else {
-                    self.syncInspector(ecs_engine, .copy);
-                }
             },
             else => |tool| if (ecs_engine.getSingletonsEntity(main_camera_singleton)) |id| {
                 const camera = ecs_engine.getEntityComponent(id, Camera) orelse unreachable;
@@ -517,45 +425,271 @@ pub fn update(
                 }
 
                 self.views.inspector.data.enabled = false;
-                self.syncInspector(ecs_engine, .copy);
             },
         }
     }
 
-    self.launcher.draw(self.icon_font);
-
-    inline for (tool_fields) |field| {
-        @field(self.views, field.name).draw(self.icon_font);
-    }
-
     render();
     endFrame();
-
-    const is_open: bool = init: {
-        inline for (tool_fields) |field| {
-            if (@field(self.views, field.name).open) break :init true;
-        }
-
-        break :init self.launcher.open;
-    };
-
-    self.state.update(is_open);
 }
 
-pub fn syncInspector(self: *Self, ecs_engine: *Ecs, @"type": enum { copy, set }) void {
-    const entity = if (0 < self.selections.entitys.items.len) self.selections.entitys.getLast() else return;
+pub fn mainUpdate(self: *Self) void {
+    if (!self.views.main.open) return;
 
-    inline for (inspected) |field| {
-        if (ecs_engine.entityHas(entity, field.type)) {
-            const component = ecs_engine.getEntityComponent(entity, field.type) orelse unreachable;
-            switch (@"type") {
-                .copy => @field(self.views.inspector.data, field.name).value = component.*,
-                .set => component.* = @field(self.views.inspector.data, field.name).value,
+    defer imgui.ImGui_End();
+    if (!imgui.ImGui_Begin(self.views.main.name, &(self.views.main.open), self.views.main.flags)) return;
+
+    if (imgui.ImGui_BeginTable("split", 2, 0)) {
+        defer imgui.ImGui_EndTable();
+
+        const button_size: f32 = 32.5;
+
+        imgui.ImGui_TableSetupColumn("Left", 0);
+        imgui.ImGui_TableSetupColumnEx("Right", imgui.ImGuiTableColumnFlags_WidthFixed, button_size, 0);
+
+        if (imgui.ImGui_TableNextColumn()) {
+            {
+                imgui.ImGui_PushItemWidth(100);
+                defer imgui.ImGui_PopItemWidth();
+
+                if (imgui.ImGui_BeginCombo("##tools", "Views", 0)) {
+                    defer imgui.ImGui_EndCombo();
+
+                    if (imgui.ImGui_Selectable("Inspector"))
+                        self.views.inspector.open = true;
+
+                    if (imgui.ImGui_Selectable("Editor"))
+                        self.views.inspector.open = true;
+                }
             }
 
-            @field(self.views.inspector.data, field.name).has = true;
+            imgui.ImGui_Separator();
+
+            {
+                imgui.ImGui_Text("Game");
+                imgui.ImGui_Indent();
+                defer imgui.ImGui_Unindent();
+
+                _ = imgui.ImGui_Checkbox("Freeze", &self.game.freeze);
+
+                imgui.ImGui_PushItemWidth(standards.width);
+                defer imgui.ImGui_PopItemWidth();
+
+                imgui.ImGui_SameLine();
+
+                const Mode: type = @FieldType(@FieldType(LauncherData, "game"), "mode");
+                help.enumSelector(Mode, &data.game.mode, "Mode");
+            }
+        }
+
+        if (imgui.ImGui_TableNextColumn()) {
+            const old = data.tool.type;
+            const values = std.enums.values(@FieldType(@FieldType(LauncherData, "tool"), "type"));
+
+            imgui.ImGui_PushFont(icons);
+            defer imgui.ImGui_PopFont();
+            inline for (values) |value| {
+                if (old != value)
+                    imgui.ImGui_PushStyleVar(imgui.ImGuiStyleVar_Alpha, imgui.ImGui_GetStyle()[0].Alpha * 0.5);
+
+                if (imgui.ImGui_ButtonEx(std.fmt.comptimePrint("{u}", .{switch (value) {
+                    .select => '',
+                    .move => '',
+                    .rotate => '',
+                    .scale => '',
+                }}), .{ .x = button_size, .y = button_size })) {
+                    data.tool.type = value;
+                    data.tool.changed = true;
+                } else {
+                    data.tool.changed = false;
+                }
+
+                if (old != value)
+                    imgui.ImGui_PopStyleVar();
+            }
+        }
+    }
+}
+
+pub fn inspectorUpdate(self: *Self, ecs_engine: *Ecs) void {
+    if (!self.views.inspector.open) return;
+
+    defer imgui.ImGui_End();
+    if (!imgui.ImGui_Begin(self.views.inspector.name, &(self.views.inspector.open), self.views.inspector.flags)) return;
+
+    const entity = self.selections.entitys.getLastOrNull() orelse return;
+
+    imgui.ImGui_BeginDisabled(self.tool.type != .select);
+    defer imgui.ImGui_EndDisabled();
+
+    {
+        imgui.ImGui_PushItemWidth(width);
+        defer imgui.ImGui_PopItemWidth();
+
+        if (ecs_engine.entityHas(entity, Position) and imgui.ImGui_CollapsingHeader("Position", 0)) {
+            imgui.ImGui_Indent();
+            defer imgui.ImGui_Unindent();
+
+            help.vectorField(Position, ecs_engine.getEntityComponent(entity, Position) orelse unreachable, "##pos", .{});
+        }
+
+        if (data.rotation.has and imgui.ImGui_CollapsingHeader("Rotation", 0)) {
+            const rotation = &data.rotation.value;
+
+            imgui.ImGui_Indent();
+            defer imgui.ImGui_Unindent();
+        }
+
+        if (data.scale.has and imgui.ImGui_CollapsingHeader("Scale", 0)) {
+            imgui.ImGui_Indent();
+            defer imgui.ImGui_Unindent();
+
+            help.vectorField(Scale, &data.scale.value, "##scale", .{});
+        }
+    }
+
+    if (data.model.has and imgui.ImGui_CollapsingHeader("Model", 0)) {
+        imgui.ImGui_Indent();
+        defer imgui.ImGui_Unindent();
+
+        help.enumSelector(Model.Type, &data.model.value.type, "Type##Model");
+    }
+
+    if (data.collider.has and imgui.ImGui_CollapsingHeader("Collider", 0)) {
+        const collider = &data.collider.value;
+
+        imgui.ImGui_Indent();
+        defer imgui.ImGui_Unindent();
+
+        help.enumSelector(Layer, &collider.layer, "Layer##col");
+
+        imgui.ImGui_Separator();
+
+        {
+            imgui.ImGui_Text("Mask");
+
+            imgui.ImGui_Indent();
+            defer imgui.ImGui_Unindent();
+
+            var mask_int: i32 = @intFromEnum(collider.mask);
+            const mask_bits = @typeInfo(@typeInfo(Mask).@"enum".tag_type).int.bits;
+            const columns = 8;
+
+            inline for (0..mask_bits) |i| {
+                const column = i % columns;
+
+                if (column == 0) {
+                    imgui.ImGui_Text(comptime help.pad(help.itoa(i) ++ "-" ++ help.itoa(i + columns - 1), 5, .right));
+                    imgui.ImGui_SameLineEx(0, 0);
+                } else {
+                    imgui.ImGui_SameLineEx(0, 0);
+                }
+
+                const bit: i32 = @as(i32, 1) << i;
+                var checked = (mask_int & bit) != 0;
+
+                if (imgui.ImGui_Checkbox("##mask" ++ (comptime help.itoa(i)), &checked)) {
+                    if (checked) mask_int |= bit else mask_int &= ~bit;
+                    collider.mask = @enumFromInt(mask_int);
+                }
+            }
+        }
+
+        imgui.ImGui_Separator();
+
+        {
+            imgui.ImGui_Indent();
+            defer imgui.ImGui_Unindent();
+
+            imgui.ImGui_PushItemWidth(standards.width);
+            defer imgui.ImGui_PopItemWidth();
+
+            const shape_names: []const u8 = "Sphere" ++ .{0} ++ "Capsule" ++ .{0} ++ "Box" ++ .{ 0, 0 };
+            var current_shape: i32 = switch (collider.type) {
+                .sphere => 0,
+                .capsule => 1,
+                .box => 2,
+            };
+
+            if (imgui.ImGui_ComboEx("Shape##col", &current_shape, shape_names.ptr, -1)) {
+                collider.type = switch (current_shape) {
+                    0 => .{ .sphere = .{ .radius = 1.0 } },
+                    1 => .{ .capsule = .{ .radius = 0.5, .half_height = 1.0 } },
+                    else => .{ .box = .{ .x = 1.0, .y = 1.0, .z = 1.0 } },
+                };
+            }
+
+            switch (collider.type) {
+                .sphere => |*sphere| _ = imgui.ImGui_DragFloat("Radius##sph", @ptrCast(&sphere.radius)),
+                .capsule => |*capsule| {
+                    _ = imgui.ImGui_DragFloat("Radius##cap", @ptrCast(&capsule.radius));
+                    _ = imgui.ImGui_DragFloat("Height##cap", @ptrCast(&capsule.half_height));
+                },
+                .box => |*box| {
+                    _ = imgui.ImGui_DragFloat("Width##box", @ptrCast(&box.x));
+                    _ = imgui.ImGui_DragFloat("Height##box", @ptrCast(&box.y));
+                    _ = imgui.ImGui_DragFloat("Depth##box", @ptrCast(&box.z));
+                },
+            }
+        }
+    }
+
+    if (data.rigidbody.has and imgui.ImGui_CollapsingHeader("Rigidbody", 0)) {
+        const rigidbody = &data.rigidbody.value;
+
+        imgui.ImGui_Indent();
+        defer imgui.ImGui_Unindent();
+
+        imgui.ImGui_PushItemWidth(standards.width);
+        defer imgui.ImGui_PopItemWidth();
+
+        if (imgui.ImGui_CollapsingHeader("Velocity", 0)) {
+            imgui.ImGui_Indent();
+            defer imgui.ImGui_Unindent();
+
+            help.vectorField(Vector3, &rigidbody.velocity, "##rb", .{});
+        }
+
+        imgui.ImGui_Separator();
+
+        _ = imgui.ImGui_DragFloat("Gravity##rb", @ptrCast(&rigidbody.gravity));
+        _ = imgui.ImGui_DragFloat("Mass##rb", @ptrCast(&rigidbody.mass));
+        _ = imgui.ImGui_DragFloat("Restitution##rb", @ptrCast(&rigidbody.restitution));
+    }
+
+    if (data.grounded.has and imgui.ImGui_CollapsingHeader("Grounded", 0)) {
+        const grounded = &data.grounded.value;
+        imgui.ImGui_Indent();
+        defer imgui.ImGui_Unindent();
+
+        _ = imgui.ImGui_Checkbox("Grounded##gnd", &grounded.grounded);
+    }
+
+    if (data.health.has and imgui.ImGui_CollapsingHeader("Health", 0)) {
+        const hp = &data.health.value;
+
+        imgui.ImGui_Indent();
+        defer imgui.ImGui_Unindent();
+
+        imgui.ImGui_PushItemWidth(standards.width);
+        defer imgui.ImGui_PopItemWidth();
+
+        _ = imgui.ImGui_DragFloat("Current##hp", @ptrCast(&hp.current));
+        _ = imgui.ImGui_DragFloat("Max##hp", @ptrCast(&hp.max));
+    }
+}
+
+pub fn editorUpdate(self: *Self, assets: *Assets) void {
+    if (!self.views.editor.open) return;
+
+    defer imgui.ImGui_End();
+    if (!imgui.ImGui_Begin(self.views.editor.name, &(self.views.editor.open), self.views.editor.flags)) return;
+
+    for (assets.names.items, 0..) |asset, i| {
+        if (imgui.ImGui_ButtonEx(asset, .{ .x = -imgui.__FLT_MIN__ })) {
+            self.selection = @intCast(i);
         } else {
-            @field(self.views.inspector.data, field.name).has = false;
+            self.selection = null;
         }
     }
 }

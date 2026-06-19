@@ -4,6 +4,8 @@ List of things to ignore.
 
 ## TIER 1
 
+- [ ] Debug windows remove hidden state by merging everything.
+
 - [ ] Test level with enemies.
   - [ ] Saving and loading.
   - [ ] Basic assets
