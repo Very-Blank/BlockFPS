@@ -3,11 +3,6 @@ const ecs = @import("ecs");
 const math = @import("math");
 const imgui = @import("imgui");
 
-const help = @import("imgui/help.zig");
-const editor = @import("imgui/windows/editor.zig");
-const inspector = @import("imgui/windows/inspector.zig");
-const launch = @import("imgui/windows/launcher.zig");
-
 const Ecs = @import("ecs.zig").Ecs;
 const SingletonType = ecs.SingletonType;
 const EntityPointer = ecs.EntityPointer;
@@ -18,7 +13,6 @@ const Vector3 = math.f32.Vector3;
 const Mat4 = math.f32.Mat4;
 
 const Window = @import("Window.zig");
-const ImGuiWindow = @import("imgui/window.zig").Window;
 const Assets = @import("Assets.zig");
 
 const Model = @import("components/model.zig").Model;
@@ -41,6 +35,18 @@ const View = struct {
     flags: i32 = 0,
 };
 
+const Tool = enum {
+    select,
+    move,
+    rotate,
+    scale,
+};
+
+const Mode = enum(u32) {
+    normal = 0,
+    cam = 1,
+};
+
 const inspected = .{
     .{ .name = "position", .type = Position },
     .{ .name = "rotation", .type = Rotation },
@@ -52,9 +58,9 @@ const inspected = .{
     .{ .name = "health", .type = Health },
 };
 
-io: *imgui.struct_ImGuiIO_t,
+io: *imgui.ImGuiIO,
 context: *imgui.ImGuiContext,
-icon_font: *imgui.ImFont,
+icons: *imgui.ImFont,
 views: struct {
     main: View = .{ .name = "Main" },
     inspector: View = .{ .name = "Inspector" },
@@ -62,12 +68,9 @@ views: struct {
 },
 game: struct {
     freeze: bool = false,
-    mode: enum(u32) { normal = 0, cam = 1 } = .normal,
+    mode: Mode = .normal,
 },
-tool: struct {
-    type: enum { select, move, rotate, scale } = .select,
-    changed: bool = false,
-},
+tool: Tool,
 state: enum {
     just_opened,
     open,
@@ -137,7 +140,7 @@ pub fn init(window: Window, allocator: std.mem.Allocator) Self {
     var new_imgui: Self = .{
         .io = undefined,
         .context = undefined,
-        .icon_font = undefined,
+        .icons = undefined,
         .selections = .{
             .entitys = .empty,
             .positions = .empty,
@@ -183,7 +186,7 @@ pub fn init(window: Window, allocator: std.mem.Allocator) Self {
         .PixelSnapV = true,
     };
 
-    new_imgui.icon_font = imgui.ImFontAtlas_AddFontFromFileTTF(
+    new_imgui.icons = imgui.ImFontAtlas_AddFontFromFileTTF(
         new_imgui.io.Fonts,
         "fonts/fontawesome-free-7.2.0-web/fa-solid-900.ttf",
         18.0,
@@ -315,7 +318,10 @@ pub fn update(
         }
     }
 
-    self.newFrame();
+    imgui.cImGui_ImplOpenGL3_NewFrame();
+    imgui.cImGui_ImplGlfw_NewFrame();
+    imgui.ImGui_NewFrame();
+    imgui.ImGuizmo_BeginFrame();
 
     if (self.selections.entitys.items.len > 0) {
         switch (self.launcher.data.tool.type) {
@@ -429,8 +435,13 @@ pub fn update(
         }
     }
 
-    render();
-    endFrame();
+    self.mainUpdate();
+    self.inspectorUpdate(ecs_engine);
+    self.editorUpdate(ecs_engine, assets);
+
+    imgui.ImGui_Render();
+    imgui.cImGui_ImplOpenGL3_RenderDrawData(imgui.ImGui_GetDrawData());
+    imgui.ImGui_EndFrame();
 }
 
 pub fn mainUpdate(self: *Self) void {
@@ -472,23 +483,20 @@ pub fn mainUpdate(self: *Self) void {
 
                 _ = imgui.ImGui_Checkbox("Freeze", &self.game.freeze);
 
-                imgui.ImGui_PushItemWidth(standards.width);
+                imgui.ImGui_PushItemWidth(width);
                 defer imgui.ImGui_PopItemWidth();
 
                 imgui.ImGui_SameLine();
 
-                const Mode: type = @FieldType(@FieldType(LauncherData, "game"), "mode");
-                help.enumSelector(Mode, &data.game.mode, "Mode");
+                enumSelector(Mode, &self.game.mode, "Mode");
             }
         }
 
         if (imgui.ImGui_TableNextColumn()) {
-            const old = data.tool.type;
-            const values = std.enums.values(@FieldType(@FieldType(LauncherData, "tool"), "type"));
-
-            imgui.ImGui_PushFont(icons);
+            const old = self.tool;
+            imgui.ImGui_PushFont(self.icons);
             defer imgui.ImGui_PopFont();
-            inline for (values) |value| {
+            inline for (std.enums.values(Tool)) |value| {
                 if (old != value)
                     imgui.ImGui_PushStyleVar(imgui.ImGuiStyleVar_Alpha, imgui.ImGui_GetStyle()[0].Alpha * 0.5);
 
@@ -498,12 +506,8 @@ pub fn mainUpdate(self: *Self) void {
                     .rotate => '',
                     .scale => '',
                 }}), .{ .x = button_size, .y = button_size })) {
-                    data.tool.type = value;
-                    data.tool.changed = true;
-                } else {
-                    data.tool.changed = false;
+                    self.tool = value;
                 }
-
                 if (old != value)
                     imgui.ImGui_PopStyleVar();
             }
@@ -530,38 +534,37 @@ pub fn inspectorUpdate(self: *Self, ecs_engine: *Ecs) void {
             imgui.ImGui_Indent();
             defer imgui.ImGui_Unindent();
 
-            help.vectorField(Position, ecs_engine.getEntityComponent(entity, Position) orelse unreachable, "##pos", .{});
+            vectorField(Position, ecs_engine.getEntityComponent(entity, Position) orelse unreachable, "##Position", .{});
         }
 
-        if (data.rotation.has and imgui.ImGui_CollapsingHeader("Rotation", 0)) {
-            const rotation = &data.rotation.value;
-
+        if (ecs_engine.entityHas(entity, Rotation) and imgui.ImGui_CollapsingHeader("Rotation", 0)) {
             imgui.ImGui_Indent();
             defer imgui.ImGui_Unindent();
+            quaternionField(Rotation, ecs_engine.getEntityComponent(entity, Rotation) orelse unreachable, "##Rotation", .{});
         }
 
-        if (data.scale.has and imgui.ImGui_CollapsingHeader("Scale", 0)) {
+        if (ecs_engine.entityHas(entity, Scale) and imgui.ImGui_CollapsingHeader("Scale", 0)) {
             imgui.ImGui_Indent();
             defer imgui.ImGui_Unindent();
 
-            help.vectorField(Scale, &data.scale.value, "##scale", .{});
+            vectorField(Scale, ecs_engine.getEntityComponent(entity, Scale) orelse unreachable, "##Scale", .{});
         }
     }
 
-    if (data.model.has and imgui.ImGui_CollapsingHeader("Model", 0)) {
+    if (ecs_engine.getEntityComponent(entity, Model) and imgui.ImGui_CollapsingHeader("Model", 0)) {
         imgui.ImGui_Indent();
         defer imgui.ImGui_Unindent();
 
-        help.enumSelector(Model.Type, &data.model.value.type, "Type##Model");
+        enumSelector(Model.Type, &(ecs_engine.getEntityComponent(entity, Model) orelse unreachable).type, "Type##Model");
     }
 
-    if (data.collider.has and imgui.ImGui_CollapsingHeader("Collider", 0)) {
-        const collider = &data.collider.value;
+    if (ecs_engine.entityHas(entity, Collider) and imgui.ImGui_CollapsingHeader("Collider", 0)) {
+        const collider = ecs_engine.getEntityComponent(entity, Collider) orelse unreachable;
 
         imgui.ImGui_Indent();
         defer imgui.ImGui_Unindent();
 
-        help.enumSelector(Layer, &collider.layer, "Layer##col");
+        enumSelector(Layer, &collider.layer, "Layer##ColliderLayer");
 
         imgui.ImGui_Separator();
 
@@ -579,7 +582,7 @@ pub fn inspectorUpdate(self: *Self, ecs_engine: *Ecs) void {
                 const column = i % columns;
 
                 if (column == 0) {
-                    imgui.ImGui_Text(comptime help.pad(help.itoa(i) ++ "-" ++ help.itoa(i + columns - 1), 5, .right));
+                    imgui.ImGui_Text(comptime pad(itoa(i) ++ "-" ++ itoa(i + columns - 1), 5, .right));
                     imgui.ImGui_SameLineEx(0, 0);
                 } else {
                     imgui.ImGui_SameLineEx(0, 0);
@@ -588,7 +591,7 @@ pub fn inspectorUpdate(self: *Self, ecs_engine: *Ecs) void {
                 const bit: i32 = @as(i32, 1) << i;
                 var checked = (mask_int & bit) != 0;
 
-                if (imgui.ImGui_Checkbox("##mask" ++ (comptime help.itoa(i)), &checked)) {
+                if (imgui.ImGui_Checkbox("##ColliderMask" ++ (comptime itoa(i)), &checked)) {
                     if (checked) mask_int |= bit else mask_int &= ~bit;
                     collider.mask = @enumFromInt(mask_int);
                 }
@@ -601,7 +604,7 @@ pub fn inspectorUpdate(self: *Self, ecs_engine: *Ecs) void {
             imgui.ImGui_Indent();
             defer imgui.ImGui_Unindent();
 
-            imgui.ImGui_PushItemWidth(standards.width);
+            imgui.ImGui_PushItemWidth(width);
             defer imgui.ImGui_PopItemWidth();
 
             const shape_names: []const u8 = "Sphere" ++ .{0} ++ "Capsule" ++ .{0} ++ "Box" ++ .{ 0, 0 };
@@ -611,7 +614,7 @@ pub fn inspectorUpdate(self: *Self, ecs_engine: *Ecs) void {
                 .box => 2,
             };
 
-            if (imgui.ImGui_ComboEx("Shape##col", &current_shape, shape_names.ptr, -1)) {
+            if (imgui.ImGui_ComboEx("Shape##ColliderShape", &current_shape, shape_names.ptr, -1)) {
                 collider.type = switch (current_shape) {
                     0 => .{ .sphere = .{ .radius = 1.0 } },
                     1 => .{ .capsule = .{ .radius = 0.5, .half_height = 1.0 } },
@@ -620,76 +623,90 @@ pub fn inspectorUpdate(self: *Self, ecs_engine: *Ecs) void {
             }
 
             switch (collider.type) {
-                .sphere => |*sphere| _ = imgui.ImGui_DragFloat("Radius##sph", @ptrCast(&sphere.radius)),
+                .sphere => |*sphere| _ = imgui.ImGui_DragFloat("Radius##SphereCollider", @ptrCast(&sphere.radius)),
                 .capsule => |*capsule| {
-                    _ = imgui.ImGui_DragFloat("Radius##cap", @ptrCast(&capsule.radius));
-                    _ = imgui.ImGui_DragFloat("Height##cap", @ptrCast(&capsule.half_height));
+                    _ = imgui.ImGui_DragFloat("Radius##CapsuleCollider", @ptrCast(&capsule.radius));
+                    _ = imgui.ImGui_DragFloat("Height##CapsuleCollider", @ptrCast(&capsule.half_height));
                 },
-                .box => |*box| {
-                    _ = imgui.ImGui_DragFloat("Width##box", @ptrCast(&box.x));
-                    _ = imgui.ImGui_DragFloat("Height##box", @ptrCast(&box.y));
-                    _ = imgui.ImGui_DragFloat("Depth##box", @ptrCast(&box.z));
-                },
+                .box => |*box| vectorField(Collider.Box, box, "##BoxCollider", .{}),
             }
         }
     }
 
-    if (data.rigidbody.has and imgui.ImGui_CollapsingHeader("Rigidbody", 0)) {
-        const rigidbody = &data.rigidbody.value;
+    if (ecs_engine.entityHas(entity, Rigidbody) and imgui.ImGui_CollapsingHeader("Rigidbody", 0)) {
+        const rigidbody = ecs_engine.getEntityComponent(entity, Rigidbody);
 
         imgui.ImGui_Indent();
         defer imgui.ImGui_Unindent();
 
-        imgui.ImGui_PushItemWidth(standards.width);
+        imgui.ImGui_PushItemWidth(width);
         defer imgui.ImGui_PopItemWidth();
 
-        if (imgui.ImGui_CollapsingHeader("Velocity", 0)) {
+        if (imgui.ImGui_CollapsingHeader("Velocity##Rigidbody", 0)) {
             imgui.ImGui_Indent();
             defer imgui.ImGui_Unindent();
 
-            help.vectorField(Vector3, &rigidbody.velocity, "##rb", .{});
+            vectorField(Vector3, &rigidbody.velocity, "##Rigidbody", .{});
         }
 
         imgui.ImGui_Separator();
 
-        _ = imgui.ImGui_DragFloat("Gravity##rb", @ptrCast(&rigidbody.gravity));
-        _ = imgui.ImGui_DragFloat("Mass##rb", @ptrCast(&rigidbody.mass));
-        _ = imgui.ImGui_DragFloat("Restitution##rb", @ptrCast(&rigidbody.restitution));
+        _ = imgui.ImGui_DragFloat("Gravity##Rigidbody", @ptrCast(&rigidbody.gravity));
+        _ = imgui.ImGui_DragFloat("Mass##Rigidbody", @ptrCast(&rigidbody.mass));
+        _ = imgui.ImGui_DragFloat("Restitution##Rigidbody", @ptrCast(&rigidbody.restitution));
     }
 
-    if (data.grounded.has and imgui.ImGui_CollapsingHeader("Grounded", 0)) {
-        const grounded = &data.grounded.value;
+    if (ecs_engine.getEntityComponent(entity, Grounded) and imgui.ImGui_CollapsingHeader("Grounded", 0)) {
         imgui.ImGui_Indent();
         defer imgui.ImGui_Unindent();
 
-        _ = imgui.ImGui_Checkbox("Grounded##gnd", &grounded.grounded);
+        _ = imgui.ImGui_Checkbox("Grounded##gnd", &(ecs_engine.getEntityComponent(entity, Grounded) orelse unreachable).grounded);
     }
 
-    if (data.health.has and imgui.ImGui_CollapsingHeader("Health", 0)) {
-        const hp = &data.health.value;
+    if (ecs_engine.getEntityComponent(entity, Health) and imgui.ImGui_CollapsingHeader("Health", 0)) {
+        const healt = ecs_engine.getEntityComponent(entity, Health);
 
         imgui.ImGui_Indent();
         defer imgui.ImGui_Unindent();
 
-        imgui.ImGui_PushItemWidth(standards.width);
+        imgui.ImGui_PushItemWidth(width);
         defer imgui.ImGui_PopItemWidth();
 
-        _ = imgui.ImGui_DragFloat("Current##hp", @ptrCast(&hp.current));
-        _ = imgui.ImGui_DragFloat("Max##hp", @ptrCast(&hp.max));
+        _ = imgui.ImGui_DragFloat("Current##Health", @ptrCast(&healt.current));
+        _ = imgui.ImGui_DragFloat("Max##Health", @ptrCast(&healt.max));
     }
 }
 
-pub fn editorUpdate(self: *Self, assets: *Assets) void {
+pub fn editorUpdate(self: *Self, ecs_engine: *Ecs, assets: *Assets) void {
     if (!self.views.editor.open) return;
 
     defer imgui.ImGui_End();
     if (!imgui.ImGui_Begin(self.views.editor.name, &(self.views.editor.open), self.views.editor.flags)) return;
 
-    for (assets.names.items, 0..) |asset, i| {
-        if (imgui.ImGui_ButtonEx(asset, .{ .x = -imgui.__FLT_MIN__ })) {
-            self.selection = @intCast(i);
-        } else {
-            self.selection = null;
+    for (assets.names.items, 0..) |asset_names, i| {
+        if (imgui.ImGui_ButtonEx(asset_names, .{ .x = -imgui.__FLT_MIN__ })) {
+            const asset = assets.assets.items[i];
+            for (self.selections.positions.items) |position| {
+                for (asset) |object| {
+                    switch (object) {
+                        .rigidbody => |value| {
+                            var offseted = value;
+                            offseted[0] = offseted[0].add(position);
+                            _ = ecs_engine.createEntity(offseted, &.{});
+                        },
+                        .staticbody => |value| {
+                            var offseted = value;
+                            offseted[0] = offseted[0].add(position);
+                            _ = ecs_engine.createEntity(offseted, &.{});
+                        },
+                        .model => |value| {
+                            var offseted = value;
+                            offseted[0] = offseted[0].add(position);
+                            _ = ecs_engine.createEntity(offseted, &.{});
+                        },
+                    }
+                }
+            }
         }
     }
 }
@@ -702,22 +719,104 @@ pub fn setStyle(_: *Self, style: enum { dark, light, classic }) void {
     }
 }
 
-// Start a new Dear ImGui frame, you can submit any command from this point until Render()/EndFrame()
-pub fn newFrame(self: *const Self) void {
-    imgui.ImGui_SetCurrentContext(self.context);
+pub fn itoa(comptime value: anytype) [:0]const u8 {
+    comptime var string: [:0]const u8 = "";
+    comptime var num = value;
 
-    imgui.cImGui_ImplOpenGL3_NewFrame();
-    imgui.cImGui_ImplGlfw_NewFrame();
-    imgui.ImGui_NewFrame();
-    imgui.ImGuizmo_BeginFrame();
+    if (num == 0) {
+        string = string ++ .{'0'};
+    } else {
+        while (num != 0) {
+            string = .{'0' + (num % 10)} ++ string;
+            num = num / 10;
+        }
+    }
+
+    return string;
 }
 
-// Ends the Dear ImGui frame. automatically called by Render(). If you don't need to render data (skipping rendering) you may call EndFrame() without Render()
-pub fn endFrame() void {
-    imgui.ImGui_EndFrame();
+pub fn pad(comptime value: [:0]const u8, comptime len: usize, comptime side: enum { left, right }) [:0]const u8 {
+    comptime var string: [:0]const u8 = value;
+    switch (side) {
+        .left => {
+            while (string.len < len) {
+                string = .{' '} ++ string;
+            }
+
+            return string;
+        },
+        .right => {
+            while (string.len < len) {
+                string = string ++ .{' '};
+            }
+
+            return string;
+        },
+    }
 }
 
-pub fn render() void {
-    imgui.ImGui_Render();
-    imgui.cImGui_ImplOpenGL3_RenderDrawData(imgui.ImGui_GetDrawData());
+pub inline fn vectorField(
+    comptime T: type,
+    value: *T,
+    suffix: [:0]const u8,
+    options: struct { speed: f32 = 0.01, min: f32 = -1000.0, max: f32 = 1000.0 },
+) void {
+    switch (@typeInfo(T)) {
+        .@"struct" => {},
+        else => @compileError("Unexpected type was given: " ++ @typeName(T) ++ "."),
+    }
+
+    if (!@hasDecl(T, "InnerType") or (T.InnerType != math.Type.vector3 and T.InnerType != math.Type.vector2))
+        @compileError("Unexpected type was given: " ++ @typeName(T) ++ ".");
+
+    inline for (std.meta.fieldNames(T)) |field| {
+        _ = imgui.ImGui_DragFloatEx(.{std.ascii.toUpper(field)} ++ suffix, @ptrCast(&@field(value, field)), options.speed, options.min, options.max, "%.3f", 0);
+    }
+}
+
+pub inline fn quaternionField(
+    comptime T: type,
+    value: *T,
+    suffix: [:0]const u8,
+    options: struct { speed: f32 = 0.01, min: f32 = -1.0, max: f32 = 1.0 },
+) void {
+    math.assertCompatible(T, .quaternion);
+    inline for (.{ "W", "X", "Y", "Z" }, 0..) |field, i| {
+        _ = imgui.ImGui_DragFloatEx(field ++ suffix, @ptrCast(&value.fields[i]), options.speed, options.min, options.max, "%.3f", 0);
+    }
+}
+
+pub inline fn enumSelector(comptime T: type, value: *T, name: [:0]const u8) void {
+    switch (@typeInfo(T)) {
+        .@"enum" => |@"enum"| if (@typeInfo(@"enum".tag_type) != .int) @compileError("Unexpected tag type."),
+        else => @compileError("Unexpected type: " ++ @typeName(T) ++ "."),
+    }
+
+    const names: []const u8 = comptime init: {
+        var names: []const u8 = "";
+
+        for (@typeInfo(T).@"enum".fields) |field| {
+            names = names ++ field.name ++ .{0};
+        }
+
+        names = names ++ .{0};
+
+        break :init names;
+    };
+
+    var current: i32 = 0;
+
+    inline for (@typeInfo(T).@"enum".fields, 0..) |field, i| {
+        if (value.* == @as(T, @enumFromInt(field.value))) {
+            current = i;
+        }
+    }
+
+    if (imgui.ImGui_ComboEx(name, &current, names.ptr, -1)) {
+        inline for (@typeInfo(T).@"enum".fields, 0..) |field, i| {
+            if (current == i) {
+                value.* = @enumFromInt(field.value);
+            }
+        }
+    }
 }
