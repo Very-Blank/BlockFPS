@@ -242,9 +242,9 @@ pub fn isOpen(self: *Self) bool {
 pub fn update(
     self: *Self,
     ecs_engine: *Ecs,
-    window: *Window,
+    _: *Window,
     assets: *Assets,
-    main_camera_singleton: SingletonType,
+    _: SingletonType,
 ) !void {
     self.state = switch (self.state) {
         .just_opened, .open => .open,
@@ -266,189 +266,189 @@ pub fn update(
         }
     }
 
-    if (!self.io.WantCaptureMouse and window.input.mouse_state.left_click == .justPressed) {
-        if (ecs_engine.getSingletonsEntity(main_camera_singleton)) |id| {
-            const camera = ecs_engine.getEntityComponent(id, Camera) orelse unreachable;
-            const position = ecs_engine.getEntityComponent(id, Position) orelse unreachable;
-
-            const view_matrix = Mat4.initView(
-                position.add(Position{ .y = camera.offset }).negate(),
-                math.f32.Quaternion.initCamRotation(-camera.rotation.yaw, -camera.rotation.pitch),
-            );
-
-            const inverse_projection = camera.projection.mat.inverse();
-            const inverse_view = view_matrix.inverse();
-
-            const ray_eye = inverse_projection.multiplyVector([4]f32{
-                (2 * window.input.mouse_state.position.x) / @as(f32, @floatFromInt(window.logical.width)) - 1.0,
-                1.0 - (2 * window.input.mouse_state.position.y) / @as(f32, @floatFromInt(window.logical.height)),
-                -1.0,
-                1.0,
-            });
-
-            const ray_world = inverse_view.multiplyVector([4]f32{
-                ray_eye[0],
-                ray_eye[1],
-                -1.0,
-                0.0,
-            });
-
-            const normal = (Vector3{
-                .x = ray_world[0],
-                .y = ray_world[1],
-                .z = ray_world[2],
-            }).normalize();
-
-            const hit = Physics.raycast(
-                ecs_engine,
-                position.add(Position{ .y = camera.offset }).coerce(Vector3),
-                normal,
-                200.0,
-                Mask.all.remove(&.{.player}),
-            );
-
-            if (hit) |raycast_result| {
-                if (window.input.getKeyState(.left_control).isDown()) {
-                    self.selections.clearPositionSelections();
-
-                    append: {
-                        for (self.selections.entitys.items, 0..) |list_entity, i| {
-                            if (list_entity.eql(raycast_result.body)) {
-                                _ = self.selections.entitys.orderedRemove(i);
-                                (ecs_engine.getEntityComponent(raycast_result.body, Model) orelse break :append).outline.enabled = false;
-
-                                break :append;
-                            }
-                        }
-
-                        try self.selections.entitys.append(self.allocator, raycast_result.body);
-                    }
-                } else if (window.input.getKeyState(.left_shift).isDown()) {
-                    self.selections.clearEntitySelections(ecs_engine);
-                    try self.selections.positions.append(self.allocator, raycast_result.position.coerce(Vector3));
-                } else {
-                    self.selections.clearEntitySelections(ecs_engine);
-                    self.selections.clearPositionSelections();
-                }
-            } else {
-                self.selections.clearEntitySelections(ecs_engine);
-                self.selections.clearPositionSelections();
-            }
-        }
-    }
-
-    imgui.cImGui_ImplOpenGL3_NewFrame();
-    imgui.cImGui_ImplGlfw_NewFrame();
-    imgui.ImGui_NewFrame();
-    imgui.ImGuizmo_BeginFrame();
-
-    if (self.selections.entitys.items.len > 0) {
-        switch (self.tool) {
-            .select, .rotate, .scale => self.selections.setEntityOutlines(ecs_engine, .primary, true),
-            .move => self.selections.setEntityOutlines(ecs_engine, .all, true),
-        }
-
-        switch (self.tool) {
-            .move, .rotate, .scale => |tool| if (ecs_engine.getSingletonsEntity(main_camera_singleton)) |id| {
-                const camera = ecs_engine.getEntityComponent(id, Camera) orelse unreachable;
-                const position = ecs_engine.getEntityComponent(id, Position) orelse unreachable;
-
-                imgui.ImGuizmo_SetRect(0, 0, self.io.DisplaySize.x, self.io.DisplaySize.y);
-
-                const view_matrix = (Mat4.initView(
-                    position.add(Position{ .y = camera.offset }).negate(),
-                    math.f32.Quaternion.initCamRotation(-camera.rotation.yaw, -camera.rotation.pitch),
-                ));
-
-                const projection_matrix = camera.projection.mat;
-
-                manipulate: switch (tool) {
-                    .move => {
-                        var average_position: Position = .zero;
-
-                        var count: usize = 0;
-                        for (self.selections.entitys.items) |entity| {
-                            average_position = average_position.add((ecs_engine.getEntityComponent(entity, Position) orelse continue).*);
-                            count += 1;
-                        }
-
-                        average_position = average_position.segment(@floatFromInt(count));
-
-                        var model_matrix = Mat4.initModel(average_position, Scale.one, Rotation.identity);
-
-                        _ = imgui.ImGuizmo_Manipulate(
-                            &view_matrix.fields[0][0],
-                            &projection_matrix.fields[0][0],
-                            imgui.ImGuizmo_OPERATION_TRANSLATE,
-                            imgui.ImGuizmo_MODE_WORLD,
-                            &model_matrix.fields[0][0],
-                        );
-
-                        if (imgui.ImGuizmo_IsUsing()) {
-                            const change: Position = .{
-                                .x = model_matrix.fields[3][0] - average_position.x,
-                                .y = model_matrix.fields[3][1] - average_position.y,
-                                .z = model_matrix.fields[3][2] - average_position.z,
-                            };
-
-                            for (self.selections.entitys.items) |entity| {
-                                const selection_position = (ecs_engine.getEntityComponent(entity, Position) orelse continue);
-                                selection_position.* = selection_position.add(change);
-
-                                (ecs_engine.getEntityComponent(entity, Rigidbody) orelse continue).velocity = .zero;
-                            }
-                        }
-                    },
-                    .rotate => {
-                        const target_position = ecs_engine.getEntityComponent(self.selections.entitys.getLast(), Position) orelse break :manipulate;
-                        const target_rotation = ecs_engine.getEntityComponent(self.selections.entitys.getLast(), Rotation) orelse break :manipulate;
-
-                        var model_matrix = Mat4.initModel(target_position.*, Scale.one, target_rotation.*);
-
-                        _ = imgui.ImGuizmo_Manipulate(
-                            &view_matrix.fields[0][0],
-                            &projection_matrix.fields[0][0],
-                            imgui.ImGuizmo_OPERATION_ROTATE & ~imgui.ImGuizmo_OPERATION_ROTATE_SCREEN,
-                            imgui.ImGuizmo_MODE_WORLD,
-                            &model_matrix.fields[0][0],
-                        );
-
-                        if (imgui.ImGuizmo_IsUsing()) {
-                            model_matrix.fields[3][0] -= target_position.x;
-                            model_matrix.fields[3][1] -= target_position.y;
-                            model_matrix.fields[3][2] -= target_position.z;
-
-                            target_rotation.* = Rotation.initFromMatrix(model_matrix).normalize();
-                        }
-                    },
-                    .scale => {
-                        const target_position = ecs_engine.getEntityComponent(self.selections.entitys.getLast(), Position) orelse break :manipulate;
-                        const target_scale = ecs_engine.getEntityComponent(self.selections.entitys.getLast(), Scale) orelse break :manipulate;
-
-                        var model_matrix = Mat4.initModel(target_position.*, target_scale.*, Rotation.identity);
-
-                        _ = imgui.ImGuizmo_Manipulate(
-                            &view_matrix.fields[0][0],
-                            &projection_matrix.fields[0][0],
-                            imgui.ImGuizmo_OPERATION_SCALE,
-                            imgui.ImGuizmo_MODE_WORLD,
-                            &model_matrix.fields[0][0],
-                        );
-
-                        if (imgui.ImGuizmo_IsUsing()) {
-                            target_scale.* = Scale{
-                                .x = model_matrix.fields[0][0],
-                                .y = model_matrix.fields[1][1],
-                                .z = model_matrix.fields[2][2],
-                            };
-                        }
-                    },
-                    else => unreachable,
-                }
-            },
-            else => {},
-        }
-    }
+    // if (!self.io.WantCaptureMouse and window.input.mouse_state.left_click == .justPressed) {
+    //     if (ecs_engine.getSingletonsEntity(main_camera_singleton)) |id| {
+    //         const camera = ecs_engine.getEntityComponent(id, Camera) orelse unreachable;
+    //         const position = ecs_engine.getEntityComponent(id, Position) orelse unreachable;
+    //
+    //         const view_matrix = Mat4.initView(
+    //             position.add(Position{ .y = camera.offset }).negate(),
+    //             math.f32.Quaternion.initCamRotation(-camera.rotation.yaw, -camera.rotation.pitch),
+    //         );
+    //
+    //         const inverse_projection = camera.projection.mat.inverse();
+    //         const inverse_view = view_matrix.inverse();
+    //
+    //         const ray_eye = inverse_projection.multiplyVector([4]f32{
+    //             (2 * window.input.mouse_state.position.x) / @as(f32, @floatFromInt(window.logical.width)) - 1.0,
+    //             1.0 - (2 * window.input.mouse_state.position.y) / @as(f32, @floatFromInt(window.logical.height)),
+    //             -1.0,
+    //             1.0,
+    //         });
+    //
+    //         const ray_world = inverse_view.multiplyVector([4]f32{
+    //             ray_eye[0],
+    //             ray_eye[1],
+    //             -1.0,
+    //             0.0,
+    //         });
+    //
+    //         const normal = (Vector3{
+    //             .x = ray_world[0],
+    //             .y = ray_world[1],
+    //             .z = ray_world[2],
+    //         }).normalize();
+    //
+    //         const hit = Physics.raycast(
+    //             ecs_engine,
+    //             position.add(Position{ .y = camera.offset }).coerce(Vector3),
+    //             normal,
+    //             200.0,
+    //             Mask.all.remove(&.{.player}),
+    //         );
+    //
+    //         if (hit) |raycast_result| {
+    //             if (window.input.getKeyState(.left_control).isDown()) {
+    //                 self.selections.clearPositionSelections();
+    //
+    //                 append: {
+    //                     for (self.selections.entitys.items, 0..) |list_entity, i| {
+    //                         if (list_entity.eql(raycast_result.body)) {
+    //                             _ = self.selections.entitys.orderedRemove(i);
+    //                             (ecs_engine.getEntityComponent(raycast_result.body, Model) orelse break :append).outline.enabled = false;
+    //
+    //                             break :append;
+    //                         }
+    //                     }
+    //
+    //                     try self.selections.entitys.append(self.allocator, raycast_result.body);
+    //                 }
+    //             } else if (window.input.getKeyState(.left_shift).isDown()) {
+    //                 self.selections.clearEntitySelections(ecs_engine);
+    //                 try self.selections.positions.append(self.allocator, raycast_result.position.coerce(Vector3));
+    //             } else {
+    //                 self.selections.clearEntitySelections(ecs_engine);
+    //                 self.selections.clearPositionSelections();
+    //             }
+    //         } else {
+    //             self.selections.clearEntitySelections(ecs_engine);
+    //             self.selections.clearPositionSelections();
+    //         }
+    //     }
+    // }
+    //
+    // imgui.cImGui_ImplOpenGL3_NewFrame();
+    // imgui.cImGui_ImplGlfw_NewFrame();
+    // imgui.ImGui_NewFrame();
+    // imgui.ImGuizmo_BeginFrame();
+    //
+    // if (self.selections.entitys.items.len > 0) {
+    //     switch (self.tool) {
+    //         .select, .rotate, .scale => self.selections.setEntityOutlines(ecs_engine, .primary, true),
+    //         .move => self.selections.setEntityOutlines(ecs_engine, .all, true),
+    //     }
+    //
+    //     switch (self.tool) {
+    //         .move, .rotate, .scale => |tool| if (ecs_engine.getSingletonsEntity(main_camera_singleton)) |id| {
+    //             const camera = ecs_engine.getEntityComponent(id, Camera) orelse unreachable;
+    //             const position = ecs_engine.getEntityComponent(id, Position) orelse unreachable;
+    //
+    //             imgui.ImGuizmo_SetRect(0, 0, self.io.DisplaySize.x, self.io.DisplaySize.y);
+    //
+    //             const view_matrix = (Mat4.initView(
+    //                 position.add(Position{ .y = camera.offset }).negate(),
+    //                 math.f32.Quaternion.initCamRotation(-camera.rotation.yaw, -camera.rotation.pitch),
+    //             ));
+    //
+    //             const projection_matrix = camera.projection.mat;
+    //
+    //             manipulate: switch (tool) {
+    //                 .move => {
+    //                     var average_position: Position = .zero;
+    //
+    //                     var count: usize = 0;
+    //                     for (self.selections.entitys.items) |entity| {
+    //                         average_position = average_position.add((ecs_engine.getEntityComponent(entity, Position) orelse continue).*);
+    //                         count += 1;
+    //                     }
+    //
+    //                     average_position = average_position.segment(@floatFromInt(count));
+    //
+    //                     var model_matrix = Mat4.initModel(average_position, Scale.one, Rotation.identity);
+    //
+    //                     _ = imgui.ImGuizmo_Manipulate(
+    //                         &view_matrix.fields[0][0],
+    //                         &projection_matrix.fields[0][0],
+    //                         imgui.ImGuizmo_OPERATION_TRANSLATE,
+    //                         imgui.ImGuizmo_MODE_WORLD,
+    //                         &model_matrix.fields[0][0],
+    //                     );
+    //
+    //                     if (imgui.ImGuizmo_IsUsing()) {
+    //                         const change: Position = .{
+    //                             .x = model_matrix.fields[3][0] - average_position.x,
+    //                             .y = model_matrix.fields[3][1] - average_position.y,
+    //                             .z = model_matrix.fields[3][2] - average_position.z,
+    //                         };
+    //
+    //                         for (self.selections.entitys.items) |entity| {
+    //                             const selection_position = (ecs_engine.getEntityComponent(entity, Position) orelse continue);
+    //                             selection_position.* = selection_position.add(change);
+    //
+    //                             (ecs_engine.getEntityComponent(entity, Rigidbody) orelse continue).velocity = .zero;
+    //                         }
+    //                     }
+    //                 },
+    //                 .rotate => {
+    //                     const target_position = ecs_engine.getEntityComponent(self.selections.entitys.getLast(), Position) orelse break :manipulate;
+    //                     const target_rotation = ecs_engine.getEntityComponent(self.selections.entitys.getLast(), Rotation) orelse break :manipulate;
+    //
+    //                     var model_matrix = Mat4.initModel(target_position.*, Scale.one, target_rotation.*);
+    //
+    //                     _ = imgui.ImGuizmo_Manipulate(
+    //                         &view_matrix.fields[0][0],
+    //                         &projection_matrix.fields[0][0],
+    //                         imgui.ImGuizmo_OPERATION_ROTATE & ~imgui.ImGuizmo_OPERATION_ROTATE_SCREEN,
+    //                         imgui.ImGuizmo_MODE_WORLD,
+    //                         &model_matrix.fields[0][0],
+    //                     );
+    //
+    //                     if (imgui.ImGuizmo_IsUsing()) {
+    //                         model_matrix.fields[3][0] -= target_position.x;
+    //                         model_matrix.fields[3][1] -= target_position.y;
+    //                         model_matrix.fields[3][2] -= target_position.z;
+    //
+    //                         target_rotation.* = Rotation.initFromMatrix(model_matrix).normalize();
+    //                     }
+    //                 },
+    //                 .scale => {
+    //                     const target_position = ecs_engine.getEntityComponent(self.selections.entitys.getLast(), Position) orelse break :manipulate;
+    //                     const target_scale = ecs_engine.getEntityComponent(self.selections.entitys.getLast(), Scale) orelse break :manipulate;
+    //
+    //                     var model_matrix = Mat4.initModel(target_position.*, target_scale.*, Rotation.identity);
+    //
+    //                     _ = imgui.ImGuizmo_Manipulate(
+    //                         &view_matrix.fields[0][0],
+    //                         &projection_matrix.fields[0][0],
+    //                         imgui.ImGuizmo_OPERATION_SCALE,
+    //                         imgui.ImGuizmo_MODE_WORLD,
+    //                         &model_matrix.fields[0][0],
+    //                     );
+    //
+    //                     if (imgui.ImGuizmo_IsUsing()) {
+    //                         target_scale.* = Scale{
+    //                             .x = model_matrix.fields[0][0],
+    //                             .y = model_matrix.fields[1][1],
+    //                             .z = model_matrix.fields[2][2],
+    //                         };
+    //                     }
+    //                 },
+    //                 else => unreachable,
+    //             }
+    //         },
+    //         else => {},
+    //     }
+    // }
 
     self.mainUpdate();
     self.inspectorUpdate(ecs_engine);

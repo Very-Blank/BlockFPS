@@ -4,6 +4,8 @@ List of things to ignore.
 
 ## TIER 1
 
+- [ ] Seperate the player and camera into two entities.
+
 - [ ] Player
   - [ ] Inventory
   - [ ] Items
@@ -40,6 +42,7 @@ List of things to ignore.
 
 # FIXME
 
+- [ ] Small boxes go trough walls.
 - [ ] Imguizmo's rotation gizmo perspective is fucked.
 - [ ] If capsule.height <= capsule.radius -> CRASH.
 - [ ] Closing the launcher from close button:

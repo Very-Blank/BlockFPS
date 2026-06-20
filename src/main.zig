@@ -29,6 +29,7 @@ const Camera = @import("components/Camera.zig");
 const Collider = @import("components/collider.zig").Collider;
 const Mask = Collider.Mask;
 const Rigidbody = @import("components/Rigidbody.zig");
+const Pickable = @import("components/pickable.zig").Pickable;
 
 const Enemy = @import("components/Enemy.zig");
 const Health = @import("components/Health.zig");
@@ -74,15 +75,41 @@ pub fn main(init: std.process.Init) !void {
     defer debug_gui.deinit();
 
     const spawnp_singleton = ecs_engine.createSingleton(.{ .components = &.{Position} });
-    const camera_singleton = ecs_engine.createSingleton(.{ .components = &.{ Position, Camera } });
-    const player_singleton = ecs_engine.createSingleton(.{ .components = &.{ Position, Rigidbody, Grounded, Camera } });
-    const flycam_singleton = ecs_engine.createSingleton(.{ .components = &.{ Position, Camera } });
+    const camera_singleton = ecs_engine.createSingleton(.{ .components = &.{ Position, Rotation, Camera } });
+    const body_singleton = ecs_engine.createSingleton(.{ .components = &.{ Position, Grounded, Rigidbody } });
     const target = ecs_engine.createSingleton(.{ .components = &.{ Position, Collider } });
 
     var physics: Physics = .init(gpa);
     defer physics.deinit();
 
     makeArena(&ecs_engine, 50.0);
+
+    {
+        const player_entity = ecs_engine.createEntity(.{
+            Health{ .current = 50.0, .max = 50.0 },
+            Position{ .x = -5, .z = -5, .y = 1.0 },
+            Rigidbody{ .mass = 5.0, .restitution = 0.0 },
+            Collider{ .type = .{ .capsule = .{ .radius = 0.25, .half_height = 1 } }, .layer = .player },
+            Grounded{ .grounded = false },
+        }, &.{});
+
+        ecs_engine.setSingletonsEntity(body_singleton, player_entity) catch unreachable;
+
+        const camera = ecs_engine.createEntity(.{
+            Position{ .x = -5, .z = -5, .y = 1.0 },
+            Rotation.identity,
+            Camera{
+                .fov = 90,
+                .aspect = @as(f32, @floatFromInt(window.logical.width)) / @as(f32, @floatFromInt(window.logical.height)),
+                .near = 0.001,
+                .far = 1000,
+            },
+        }, &.{});
+
+        ecs_engine.setSingletonsEntity(camera_singleton, camera) catch unreachable;
+
+        ecs_engine.createLink("parent", player_entity, camera, Position{ .y = 0.75 }) catch unreachable;
+    }
 
     try ecs_engine.setSingletonsEntity(spawnp_singleton, ecs_engine.createEntity(.{Position{ .x = 2.0, .y = 2.0, .z = 2.0 }}, &.{}));
 
@@ -99,8 +126,6 @@ pub fn main(init: std.process.Init) !void {
 
             break :outer @floatCast(delta_time);
         };
-
-        respawn(&ecs_engine, &window, player_singleton, flycam_singleton, spawnp_singleton, target);
 
         if (!debug_gui.game.freeze) {
             physics.update(&ecs_engine, delta_time);
@@ -123,15 +148,16 @@ pub fn main(init: std.process.Init) !void {
         }
 
         if (!debug_gui.isOpen()) {
-            switch (debug_gui.game.mode) {
-                .normal => {
-                    handlePlayerInput(&ecs_engine, &window, player_singleton);
-                },
-                .cam => {
-                    handleCamInput(&ecs_engine, &window, flycam_singleton, delta_time);
-                },
-            }
-        } else if (ecs_engine.getSingletonsEntity(player_singleton)) |id| {
+            handlePlayerInput(&ecs_engine, &window, body_singleton, camera_singleton);
+            // switch (debug_gui.game.mode) {
+            //     .normal => {
+            //         handlePlayerInput(&ecs_engine, &window, body_singleton);
+            //     },
+            //     .cam => {
+            //         handleCamInput(&ecs_engine, &window, flycam_singleton, delta_time);
+            //     },
+            // }
+        } else if (ecs_engine.getSingletonsEntity(body_singleton)) |id| {
             const rigidbody = ecs_engine.getEntityComponent(id, Rigidbody) orelse unreachable;
             rigidbody.velocity.x = 0;
             rigidbody.velocity.z = 0;
@@ -145,35 +171,35 @@ pub fn main(init: std.process.Init) !void {
             dst_position.* = src_position.add(data);
         }
 
-        switch (debug_gui.game.mode) {
-            .normal => {
-                if (ecs_engine.getSingletonsEntity(player_singleton)) |id| {
-                    ecs_engine.setSingletonsEntity(camera_singleton, id) catch unreachable;
-                }
-            },
-            .cam => {
-                if (ecs_engine.getSingletonsEntity(flycam_singleton)) |id| {
-                    ecs_engine.setSingletonsEntity(camera_singleton, id) catch unreachable;
-                }
-            },
-        }
-
+        // switch (debug_gui.game.mode) {
+        //     .normal => {
+        //         if (ecs_engine.getSingletonsEntity(body_singleton)) |id| {
+        //             ecs_engine.setSingletonsEntity(camera_singleton, id) catch unreachable;
+        //         }
+        //     },
+        //     .cam => {
+        //         if (ecs_engine.getSingletonsEntity(flycam_singleton)) |id| {
+        //             ecs_engine.setSingletonsEntity(camera_singleton, id) catch unreachable;
+        //         }
+        //     },
+        // }
+        //
         if (!debug_gui.game.freeze)
             enemies.update(&ecs_engine, target, random, delta_time);
 
-        rendering.render(&ecs_engine, camera_singleton);
-
-        try debug_gui.update(&ecs_engine, &window, &assets, camera_singleton);
-
-        update_view: {
-            var iterator = ecs_engine.getIterator(.{ .component = Camera }) orelse break :update_view;
+        update_aspect: {
+            var iterator = ecs_engine.getIterator(.{ .component = Camera }) orelse break :update_aspect;
 
             const aspect: f32 = @as(f32, @floatFromInt(window.logical.width)) / @as(f32, @floatFromInt(window.logical.height));
 
             while (iterator.next()) |camera| {
-                camera.updateView(aspect);
+                camera.aspect = aspect;
             }
         }
+
+        rendering.render(&ecs_engine, camera_singleton);
+
+        try debug_gui.update(&ecs_engine, &window, &assets, camera_singleton);
 
         destroy: {
             var iterator = ecs_engine.getIterator(.{
@@ -221,60 +247,42 @@ pub fn main(init: std.process.Init) !void {
     }
 }
 
-pub fn respawn(
-    ecs_engine: *Ecs,
-    window: *Window,
-    player_singleton: SingletonType,
-    flycam_singleton: SingletonType,
-    spawnp_singleton: SingletonType,
-    target: SingletonType,
-) void {
-    const spawn_point: Position = (ecs_engine.getEntityComponent(
-        ecs_engine.getSingletonsEntity(spawnp_singleton) orelse return,
-        Position,
-    ) orelse return).*;
-
-    if (ecs_engine.getSingletonsEntity(player_singleton) == null) {
-        const player_entity = ecs_engine.createEntity(.{
-            Health{ .current = 50.0, .max = 50.0 },
-            spawn_point,
-            Rigidbody{ .mass = 5.0, .restitution = 0.0 },
-            Collider{ .type = .{ .capsule = .{ .radius = 0.25, .half_height = 1 } }, .layer = .player },
-            Grounded{ .grounded = false },
-            Camera{
-                .offset = 0.75,
-                .projection = .{
-                    .mat = .initPerspective(90.0, @as(f32, @floatFromInt(window.logical.width)) / @as(f32, @floatFromInt(window.logical.height)), 1000.0, 0.001),
-                    .far = 1000.0,
-                    .near = 0.001,
-                    .fov = 90,
-                },
-                .rotation = .{ .pitch = 0.0, .yaw = 0.0 },
-            },
-        }, &.{});
-
-        ecs_engine.setSingletonsEntity(player_singleton, player_entity) catch unreachable;
-        ecs_engine.setSingletonsEntity(target, player_entity) catch unreachable;
-    }
-
-    if (ecs_engine.getSingletonsEntity(flycam_singleton) == null) {
-        const flycam_entity = ecs_engine.createEntity(.{
-            spawn_point,
-            Camera{
-                .offset = 0.75,
-                .projection = .{
-                    .mat = .initPerspective(90.0, @as(f32, @floatFromInt(window.logical.width)) / @as(f32, @floatFromInt(window.logical.height)), 1000.0, 0.001),
-                    .far = 1000.0,
-                    .near = 0.001,
-                    .fov = 90,
-                },
-                .rotation = .{ .pitch = 0.0, .yaw = 0.0 },
-            },
-        }, &.{});
-
-        ecs_engine.setSingletonsEntity(flycam_singleton, flycam_entity) catch unreachable;
-    }
-}
+// pub fn respawn(
+//     ecs_engine: *Ecs,
+//     window: *Window,
+//     player_singleton: SingletonType,
+//     camera_singleton: SingletonType,
+//     spawnp_singleton: SingletonType,
+//     target: SingletonType,
+// ) void {
+//     const spawn_point: Position = (ecs_engine.getEntityComponent(
+//         ecs_engine.getSingletonsEntity(spawnp_singleton) orelse return,
+//         Position,
+//     ) orelse return).*;
+//
+//     if (ecs_engine.getSingletonsEntity(player_singleton) == null) {
+//         const player_entity = ecs_engine.createEntity(.{
+//             Health{ .current = 50.0, .max = 50.0 },
+//             spawn_point,
+//             Rigidbody{ .mass = 5.0, .restitution = 0.0 },
+//             Collider{ .type = .{ .capsule = .{ .radius = 0.25, .half_height = 1 } }, .layer = .player },
+//             Grounded{ .grounded = false },
+//             Camera{
+//                 .offset = 0.75,
+//                 .projection = .{
+//                     .mat = .initPerspective(90.0, @as(f32, @floatFromInt(window.logical.width)) / @as(f32, @floatFromInt(window.logical.height)), 1000.0, 0.001),
+//                     .far = 1000.0,
+//                     .near = 0.001,
+//                     .fov = 90,
+//                 },
+//                 .rotation = .{ .pitch = 0.0, .yaw = 0.0 },
+//             },
+//         }, &.{});
+//
+//         ecs_engine.setSingletonsEntity(player_singleton, player_entity) catch unreachable;
+//         ecs_engine.setSingletonsEntity(target, player_entity) catch unreachable;
+//     }
+// }
 
 pub fn handleCollision(physics: *Physics, ecs_engine: *Ecs) void {
     for (physics.sbVsRb_collisions.items, 0..) |collision, i| {
@@ -363,60 +371,79 @@ pub fn handleCamInput(ecs_engine: *Ecs, window: *Window, cam_singleton: Singleto
     }
 }
 
-pub fn handlePlayerInput(ecs_engine: *Ecs, window: *Window, player_singleton: SingletonType) void {
-    if (ecs_engine.getSingletonsEntity(player_singleton)) |id| {
-        const position = ecs_engine.getEntityComponent(id, Position) orelse unreachable;
-        const rigidbody = ecs_engine.getEntityComponent(id, Rigidbody) orelse unreachable;
-        const grounded = ecs_engine.getEntityComponent(id, Grounded) orelse unreachable;
-        const camera = ecs_engine.getEntityComponent(id, Camera) orelse unreachable;
+pub fn handlePlayerInput(ecs_engine: *Ecs, window: *Window, player_singleton: SingletonType, camera_singleton: SingletonType) void {
+    const player_entity = ecs_engine.getSingletonsEntity(player_singleton) orelse return;
+    const camera_entity = ecs_engine.getSingletonsEntity(camera_singleton) orelse return;
 
-        camera.rotation.yaw -= window.input.mouse_state.motion.x / 1000.0;
-        camera.rotation.pitch -= window.input.mouse_state.motion.y / 1000.0;
+    const rigidbody = ecs_engine.getEntityComponent(player_entity, Rigidbody) orelse unreachable;
+    const grounded = ecs_engine.getEntityComponent(player_entity, Grounded) orelse unreachable;
 
-        var movement_input: Vector3 = .zero;
-        if (window.input.getKeyState(.w).isDown()) {
-            movement_input.z -= 1.0;
-        }
-        if (window.input.getKeyState(.s).isDown()) {
-            movement_input.z += 1.0;
-        }
-        if (window.input.getKeyState(.d).isDown()) {
-            movement_input.x += 1.0;
-        }
-        if (window.input.getKeyState(.a).isDown()) {
-            movement_input.x -= 1.0;
-        }
+    const camera_rotation = ecs_engine.getEntityComponent(camera_entity, Rotation) orelse unreachable;
+    const camera_position = ecs_engine.getEntityComponent(camera_entity, Position) orelse unreachable;
 
-        if (grounded.grounded and window.input.getKeyState(.space) == .justPressed) {
-            rigidbody.velocity.y += 5;
-        }
+    camera_rotation.* = camera_rotation
+        .multiply(Rotation.initFromRadians(.x, -window.input.mouse_state.motion.y / 1000.0))
+        .addAroundAxis(.y, -window.input.mouse_state.motion.x / 1000.0);
 
-        if (movement_input.length() > 0.0) {
-            movement_input = movement_input.normalize().rotateAroundAxis(.y, camera.rotation.yaw).scale(if (window.input.getKeyState(.left_shift).isDown()) 10 else 4);
-            rigidbody.velocity.x = movement_input.x;
-            rigidbody.velocity.z = movement_input.z;
-        } else {
-            rigidbody.velocity.x = 0.0;
-            rigidbody.velocity.z = 0.0;
-        }
+    var movement_input: Vector3 = .zero;
+    if (window.input.getKeyState(.w).isDown()) {
+        movement_input.z -= 1.0;
+    }
+    if (window.input.getKeyState(.s).isDown()) {
+        movement_input.z += 1.0;
+    }
+    if (window.input.getKeyState(.d).isDown()) {
+        movement_input.x += 1.0;
+    }
+    if (window.input.getKeyState(.a).isDown()) {
+        movement_input.x -= 1.0;
+    }
 
-        if (window.input.mouse_state.left_click == .justPressed) {
-            const forward = Vector3.forward
-                .rotateAroundAxis(.x, camera.rotation.pitch)
-                .rotateAroundAxis(.y, camera.rotation.yaw)
-                .normalize()
-                .negate();
+    if (grounded.grounded and window.input.getKeyState(.space) == .justPressed) {
+        rigidbody.velocity.y += 5;
+    }
 
-            _ = ecs_engine.createEntity(.{
-                Bullet{ .damage = 10, .duration = 3.0, .max_deflection_angle = 0.85 },
-                position.add(forward).add(Position{ .y = camera.offset }),
-                Scale{ .x = 0.1, .y = 0.1, .z = 0.1 },
-                Rotation.identity,
-                Model{},
-                Collider{ .type = .{ .sphere = .{ .radius = 0.1 } } },
-                Rigidbody{ .velocity = forward.scale(50.0), .gravity = 0.0, .restitution = 0.0, .mass = 0.1 },
-            }, &.{});
-        }
+    if (movement_input.length() > 0.0) {
+        movement_input = movement_input
+            .normalize()
+            .rotateAroundAxis(
+                .y,
+                2.0 * std.math.atan2(
+                    camera_rotation.fields[2],
+                    camera_rotation.fields[0],
+                ),
+            )
+            .scale(if (window.input.getKeyState(.left_shift).isDown()) 10 else 4);
+        rigidbody.velocity.x = movement_input.x;
+        rigidbody.velocity.z = movement_input.z;
+    } else {
+        rigidbody.velocity.x = 0.0;
+        rigidbody.velocity.z = 0.0;
+    }
+
+    const forward = Vector3.forward.rotate(camera_rotation.*);
+
+    if (Physics.raycast(
+        ecs_engine,
+        camera_position.coerce(Vector3),
+        forward,
+        200.0,
+        Mask.all.remove(&.{.player}),
+    )) |hit|
+        if (ecs_engine.entityHas(hit.body, Pickable)) {
+            ecs_engine.createLink("parent", player_entity, hit.body, Position.zero) catch unreachable;
+        };
+
+    if (window.input.mouse_state.left_click == .justPressed) {
+        _ = ecs_engine.createEntity(.{
+            Bullet{ .damage = 10, .duration = 3.0, .max_deflection_angle = 0.85 },
+            camera_position.*,
+            Scale{ .x = 0.1, .y = 0.1, .z = 0.1 },
+            Rotation.identity,
+            Model{},
+            Collider{ .type = .{ .sphere = .{ .radius = 0.1 } } },
+            Rigidbody{ .velocity = forward.scale(50.0), .gravity = 0.0, .restitution = 0.0, .mass = 0.1 },
+        }, &.{});
     }
 }
 
@@ -490,6 +517,15 @@ pub fn makeArena(ecs_engine: *Ecs, size: f32) void {
         Rotation.identity,
         Model{ .type = .monkey },
         Collider{ .type = .{ .box = .{ .x = 2.5, .y = 2.5, .z = 2.5 } } },
+        Rigidbody{ .restitution = 0.5, .mass = 10.0 },
+    }, &.{});
+
+    _ = ecs_engine.createEntity(.{
+        Position.one.scale(5.0),
+        Scale{ .x = 0.4, .y = 0.4, .z = 0.4 },
+        Rotation.identity,
+        Model{ .type = .cube },
+        Collider{ .type = .{ .box = .{ .x = 0.4, .y = 0.4, .z = 0.4 } } },
         Rigidbody{ .restitution = 0.5, .mass = 10.0 },
     }, &.{});
 
