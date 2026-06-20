@@ -102,13 +102,13 @@ pub fn main(init: std.process.Init) !void {
 
         respawn(&ecs_engine, &window, player_singleton, flycam_singleton, spawnp_singleton, target);
 
-        if (!debug_gui.launcher.data.game.freeze) {
+        if (!debug_gui.game.freeze) {
             physics.update(&ecs_engine, delta_time);
             handleCollision(&physics, &ecs_engine);
         }
 
         if (window.input.getKeyState(.escape) == .justPressed) {
-            if (debug_gui.state.isOpen()) {
+            if (debug_gui.isOpen()) {
                 debug_gui.close(&ecs_engine);
             } else {
                 ignore_input = true;
@@ -122,8 +122,8 @@ pub fn main(init: std.process.Init) !void {
             window.setMouseMode(.disabled);
         }
 
-        if (!debug_gui.state.isOpen()) {
-            switch (debug_gui.launcher.data.game.mode) {
+        if (!debug_gui.isOpen()) {
+            switch (debug_gui.game.mode) {
                 .normal => {
                     handlePlayerInput(&ecs_engine, &window, player_singleton);
                 },
@@ -145,7 +145,7 @@ pub fn main(init: std.process.Init) !void {
             dst_position.* = src_position.add(data);
         }
 
-        switch (debug_gui.launcher.data.game.mode) {
+        switch (debug_gui.game.mode) {
             .normal => {
                 if (ecs_engine.getSingletonsEntity(player_singleton)) |id| {
                     ecs_engine.setSingletonsEntity(camera_singleton, id) catch unreachable;
@@ -158,7 +158,7 @@ pub fn main(init: std.process.Init) !void {
             },
         }
 
-        if (!debug_gui.launcher.data.game.freeze)
+        if (!debug_gui.game.freeze)
             enemies.update(&ecs_engine, target, random, delta_time);
 
         rendering.render(&ecs_engine, camera_singleton);
@@ -187,7 +187,7 @@ pub fn main(init: std.process.Init) !void {
             }
         }
 
-        if (!debug_gui.launcher.data.game.freeze) {
+        if (!debug_gui.game.freeze) {
             destroy: {
                 var iterator = ecs_engine.getIterator(.{
                     .component = Health,

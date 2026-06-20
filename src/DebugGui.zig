@@ -30,7 +30,7 @@ const Bullet = @import("components/Bullet.zig");
 const Enemy = @import("components/Enemy.zig");
 
 const View = struct {
-    name: []const u8,
+    name: [:0]const u8,
     open: bool = false,
     flags: i32 = 0,
 };
@@ -69,8 +69,8 @@ views: struct {
 game: struct {
     freeze: bool = false,
     mode: Mode = .normal,
-},
-tool: Tool,
+} = .{},
+tool: Tool = .select,
 state: enum {
     just_opened,
     open,
@@ -224,6 +224,20 @@ pub fn deinit(self: *Self) void {
     self.io = undefined;
 }
 
+pub fn open(self: *Self) void {
+    self.state = .just_opened;
+    self.views.main.open = true;
+}
+
+pub fn close(self: *Self, ecs_engine: *Ecs) void {
+    self.state = .just_closed;
+    self.selections.clearEntitySelections(ecs_engine);
+}
+
+pub fn isOpen(self: *Self) bool {
+    return self.state == .just_opened or self.state == .open;
+}
+
 // Returns true if any of the debug windows are open.
 pub fn update(
     self: *Self,
@@ -232,6 +246,11 @@ pub fn update(
     assets: *Assets,
     main_camera_singleton: SingletonType,
 ) !void {
+    self.state = switch (self.state) {
+        .just_opened, .open => .open,
+        .just_closed, .closed => .closed,
+    };
+
     if (self.state == .closed or self.state == .just_closed) return;
 
     {
@@ -290,7 +309,7 @@ pub fn update(
 
             if (hit) |raycast_result| {
                 if (window.input.getKeyState(.left_control).isDown()) {
-                    self.clearPositionSelections();
+                    self.selections.clearPositionSelections();
 
                     append: {
                         for (self.selections.entitys.items, 0..) |list_entity, i| {
@@ -305,15 +324,15 @@ pub fn update(
                         try self.selections.entitys.append(self.allocator, raycast_result.body);
                     }
                 } else if (window.input.getKeyState(.left_shift).isDown()) {
-                    self.clearEntitySelections(ecs_engine);
+                    self.selections.clearEntitySelections(ecs_engine);
                     try self.selections.positions.append(self.allocator, raycast_result.position.coerce(Vector3));
                 } else {
-                    self.clearEntitySelections(ecs_engine);
-                    self.clearPositionSelections();
+                    self.selections.clearEntitySelections(ecs_engine);
+                    self.selections.clearPositionSelections();
                 }
             } else {
-                self.clearEntitySelections(ecs_engine);
-                self.clearPositionSelections();
+                self.selections.clearEntitySelections(ecs_engine);
+                self.selections.clearPositionSelections();
             }
         }
     }
@@ -324,16 +343,13 @@ pub fn update(
     imgui.ImGuizmo_BeginFrame();
 
     if (self.selections.entitys.items.len > 0) {
-        switch (self.launcher.data.tool.type) {
-            .select, .rotate, .scale => self.setEntityOutlines(ecs_engine, .primary, true),
-            .move => self.setEntityOutlines(ecs_engine, .all, true),
+        switch (self.tool) {
+            .select, .rotate, .scale => self.selections.setEntityOutlines(ecs_engine, .primary, true),
+            .move => self.selections.setEntityOutlines(ecs_engine, .all, true),
         }
 
-        switch (self.launcher.data.tool.type) {
-            .select => {
-                self.views.inspector.data.enabled = true;
-            },
-            else => |tool| if (ecs_engine.getSingletonsEntity(main_camera_singleton)) |id| {
+        switch (self.tool) {
+            .move, .rotate, .scale => |tool| if (ecs_engine.getSingletonsEntity(main_camera_singleton)) |id| {
                 const camera = ecs_engine.getEntityComponent(id, Camera) orelse unreachable;
                 const position = ecs_engine.getEntityComponent(id, Position) orelse unreachable;
 
@@ -429,9 +445,8 @@ pub fn update(
                     },
                     else => unreachable,
                 }
-
-                self.views.inspector.data.enabled = false;
             },
+            else => {},
         }
     }
 
@@ -470,7 +485,7 @@ pub fn mainUpdate(self: *Self) void {
                         self.views.inspector.open = true;
 
                     if (imgui.ImGui_Selectable("Editor"))
-                        self.views.inspector.open = true;
+                        self.views.editor.open = true;
                 }
             }
 
@@ -523,7 +538,7 @@ pub fn inspectorUpdate(self: *Self, ecs_engine: *Ecs) void {
 
     const entity = self.selections.entitys.getLastOrNull() orelse return;
 
-    imgui.ImGui_BeginDisabled(self.tool.type != .select);
+    imgui.ImGui_BeginDisabled(self.tool != .select);
     defer imgui.ImGui_EndDisabled();
 
     {
@@ -551,7 +566,7 @@ pub fn inspectorUpdate(self: *Self, ecs_engine: *Ecs) void {
         }
     }
 
-    if (ecs_engine.getEntityComponent(entity, Model) and imgui.ImGui_CollapsingHeader("Model", 0)) {
+    if (ecs_engine.entityHas(entity, Model) and imgui.ImGui_CollapsingHeader("Model", 0)) {
         imgui.ImGui_Indent();
         defer imgui.ImGui_Unindent();
 
@@ -634,7 +649,7 @@ pub fn inspectorUpdate(self: *Self, ecs_engine: *Ecs) void {
     }
 
     if (ecs_engine.entityHas(entity, Rigidbody) and imgui.ImGui_CollapsingHeader("Rigidbody", 0)) {
-        const rigidbody = ecs_engine.getEntityComponent(entity, Rigidbody);
+        const rigidbody = ecs_engine.getEntityComponent(entity, Rigidbody) orelse unreachable;
 
         imgui.ImGui_Indent();
         defer imgui.ImGui_Unindent();
@@ -656,15 +671,15 @@ pub fn inspectorUpdate(self: *Self, ecs_engine: *Ecs) void {
         _ = imgui.ImGui_DragFloat("Restitution##Rigidbody", @ptrCast(&rigidbody.restitution));
     }
 
-    if (ecs_engine.getEntityComponent(entity, Grounded) and imgui.ImGui_CollapsingHeader("Grounded", 0)) {
+    if (ecs_engine.entityHas(entity, Grounded) and imgui.ImGui_CollapsingHeader("Grounded", 0)) {
         imgui.ImGui_Indent();
         defer imgui.ImGui_Unindent();
 
         _ = imgui.ImGui_Checkbox("Grounded##gnd", &(ecs_engine.getEntityComponent(entity, Grounded) orelse unreachable).grounded);
     }
 
-    if (ecs_engine.getEntityComponent(entity, Health) and imgui.ImGui_CollapsingHeader("Health", 0)) {
-        const healt = ecs_engine.getEntityComponent(entity, Health);
+    if (ecs_engine.entityHas(entity, Health) and imgui.ImGui_CollapsingHeader("Health", 0)) {
+        const healt = ecs_engine.getEntityComponent(entity, Health) orelse unreachable;
 
         imgui.ImGui_Indent();
         defer imgui.ImGui_Unindent();
@@ -766,11 +781,11 @@ pub inline fn vectorField(
         else => @compileError("Unexpected type was given: " ++ @typeName(T) ++ "."),
     }
 
-    if (!@hasDecl(T, "InnerType") or (T.InnerType != math.Type.vector3 and T.InnerType != math.Type.vector2))
+    if (!@hasDecl(T, "type") or (T.type != .vector2 and T.type != .vector3))
         @compileError("Unexpected type was given: " ++ @typeName(T) ++ ".");
 
-    inline for (std.meta.fieldNames(T)) |field| {
-        _ = imgui.ImGui_DragFloatEx(.{std.ascii.toUpper(field)} ++ suffix, @ptrCast(&@field(value, field)), options.speed, options.min, options.max, "%.3f", 0);
+    inline for (comptime std.meta.fieldNames(T)) |field| {
+        _ = imgui.ImGui_DragFloatEx(.{std.ascii.toUpper(field[0])} ++ suffix, @ptrCast(&@field(value, field)), options.speed, options.min, options.max, "%.3f", 0);
     }
 }
 
@@ -780,7 +795,8 @@ pub inline fn quaternionField(
     suffix: [:0]const u8,
     options: struct { speed: f32 = 0.01, min: f32 = -1.0, max: f32 = 1.0 },
 ) void {
-    math.assertCompatible(T, .quaternion);
+    math.assertType(T, .quaternion);
+
     inline for (.{ "W", "X", "Y", "Z" }, 0..) |field, i| {
         _ = imgui.ImGui_DragFloatEx(field ++ suffix, @ptrCast(&value.fields[i]), options.speed, options.min, options.max, "%.3f", 0);
     }
