@@ -4,15 +4,15 @@ List of things to ignore.
 
 ## TIER 1
 
+- [ ] Player
+  - [ ] Inventory
+  - [ ] Items
+
 - [ ] Test level with enemies.
   - [ ] Saving and loading.
   - [ ] Basic assets
     - [ ] Textures
     - [ ] Models
-
-- [ ] Player
-  - [ ] Inventory
-  - [ ] Items
 
 ## TIER 2
 
