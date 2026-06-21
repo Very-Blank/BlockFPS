@@ -26,5 +26,5 @@ pub const Ecs = ecs.Ecs(
         ecs.Template{ .components = &.{ Health, Position, Collider, Rigidbody, Grounded } }, // NOTE: Player
         ecs.Template{ .components = &.{ Position, Rotation, Camera } }, // NOTE: Cam
     },
-    &.{.{ .name = "parent", .T = Position, .mode = .destination, .requirments = .{ .components = &.{Position} } }},
+    &.{.{ .name = "parent", .T = struct { position: Position, rotation: Rotation }, .mode = .destination, .requirments = .{ .components = &.{ Position, Rotation } } }},
 );

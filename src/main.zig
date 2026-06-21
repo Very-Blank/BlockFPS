@@ -168,8 +168,9 @@ pub fn main(init: std.process.Init) !void {
             const src_position = ecs_engine.getEntityComponent(links.sources[i], Position) orelse unreachable;
             const dst_position = ecs_engine.getEntityComponent(links.destinations[i], Position) orelse unreachable;
 
-            if (ecs_engine.getEntityComponent(links.sources[i], Rotation)) |rotation| {
-                dst_position.* = src_position.add(data.rotate(rotation.*));
+            if (ecs_engine.getEntityComponent(links.sources[i], Rotation)) |src_rotation| {
+                dst_position.* = src_position.add(data.rotate(src_rotation.*));
+
                 continue;
             }
 
