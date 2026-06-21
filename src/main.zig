@@ -168,6 +168,11 @@ pub fn main(init: std.process.Init) !void {
             const src_position = ecs_engine.getEntityComponent(links.sources[i], Position) orelse unreachable;
             const dst_position = ecs_engine.getEntityComponent(links.destinations[i], Position) orelse unreachable;
 
+            if (ecs_engine.getEntityComponent(links.sources[i], Rotation)) |rotation| {
+                dst_position.* = src_position.add(data.rotate(rotation.*));
+                continue;
+            }
+
             dst_position.* = src_position.add(data);
         }
 
@@ -421,18 +426,19 @@ pub fn handlePlayerInput(ecs_engine: *Ecs, window: *Window, player_singleton: Si
         rigidbody.velocity.z = 0.0;
     }
 
-    const forward = Vector3.forward.rotate(camera_rotation.*);
+    const forward = Vector3.forward.negate().rotate(camera_rotation.*);
 
-    if (Physics.raycast(
-        ecs_engine,
-        camera_position.coerce(Vector3),
-        forward,
-        200.0,
-        Mask.all.remove(&.{.player}),
-    )) |hit|
-        if (ecs_engine.entityHas(hit.body, Pickable)) {
-            ecs_engine.createLink("parent", player_entity, hit.body, Position.zero) catch unreachable;
-        };
+    if (window.input.getKeyState(.f) == .justPressed)
+        if (Physics.raycast(
+            ecs_engine,
+            camera_position.coerce(Vector3),
+            forward,
+            200.0,
+            Mask.all.remove(&.{.player}),
+        )) |hit|
+            if (ecs_engine.entityHas(hit.body, Pickable)) {
+                ecs_engine.createLink("parent", camera_entity, hit.body, Position{ .z = -1.0, .y = -0.3, .x = 0.1 }) catch unreachable;
+            };
 
     if (window.input.mouse_state.left_click == .justPressed) {
         _ = ecs_engine.createEntity(.{
@@ -527,7 +533,7 @@ pub fn makeArena(ecs_engine: *Ecs, size: f32) void {
         Model{ .type = .cube },
         Collider{ .type = .{ .box = .{ .x = 0.4, .y = 0.4, .z = 0.4 } } },
         Rigidbody{ .restitution = 0.5, .mass = 10.0 },
-    }, &.{});
+    }, &.{Pickable});
 
     // _ = ecs_engine.createEntity(.{
     //     Enemy{
