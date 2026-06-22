@@ -255,7 +255,6 @@ pub fn main(init: std.process.Init) !void {
                 while (iterator.next()) |buller| {
                     buller.elapsed += delta_time;
                     if (buller.duration < buller.elapsed) {
-                        std.debug.print("{any}\n", .{iterator.getCurrentEntity()});
                         ecs_engine.destroyEntity(iterator.getCurrentEntity());
                     }
                 }
@@ -465,14 +464,14 @@ pub fn handlePlayerInput(ecs_engine: *Ecs, window: *Window, player_singleton: Si
                 ) catch unreachable;
             };
 
-    if (window.input.mouse_state.left_click == .justPressed) {
+    if (window.input.mouse_state.left_click.isDown()) {
         _ = ecs_engine.createEntity(.{
             Bullet{ .damage = 10, .duration = 3.0, .max_deflection_angle = 0.85 },
             camera_position.*,
             Scale{ .x = 0.1, .y = 0.1, .z = 0.1 },
             Rotation.identity,
             Model{},
-            Collider{ .type = .{ .sphere = .{ .radius = 0.1 } } },
+            Collider{ .type = .{ .sphere = .{ .radius = 0.1 } }, .mask = Mask.all.remove(&.{.player}) },
             Rigidbody{ .velocity = forward.scale(50.0), .gravity = 0.0, .restitution = 0.0, .mass = 0.1 },
         }, &.{});
     }

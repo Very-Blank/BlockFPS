@@ -41,8 +41,8 @@
             .hash = "ZigMath-0.0.0-M0fTGHiOAAC7alf8kkil5dB_fID_C6514ZhE0iMGRGLG",
         },
         .ECS = .{
-            .url = "git+https://github.com/Very-Blank/Ecs.git#fcf744be9d0c6edd0b6f1a081092a0ee50939d11",
-            .hash = "ECS-0.0.0-llhprSNHAQAjsuipYbwESwU14N6kNJQSVZD08oXFf9FU",
+            .url = "git+https://github.com/Very-Blank/Ecs.git#f64f8d662c2b67386c9ba20177776f9ed69cb9f3",
+            .hash = "ECS-0.0.0-llhprZhKAQAzsfOucHo357Jr07U97MhJGPl1WT4yD-mW",
         },
         .cimgui_zig = .{
             .url = "git+https://github.com/tiawl/cimgui.zig.git#6236ef65bcb28dce7c85551ff666c6a05958ce70",
