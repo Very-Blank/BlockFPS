@@ -42,6 +42,10 @@ List of things to ignore.
 
 # FIXME
 
+- [ ] Something is very wrong with deletion.
+      `.{ .entity = @enumFromInt(13), .generation = @enumFromInt(2) }, .{ .entity = @enumFromInt(13), .generation = @enumFromInt(2) }`
+      To reproduce shoot bunch of bullets.
+
 - [ ] Small boxes go trough walls.
 - [ ] Imguizmo's rotation gizmo perspective is fucked.
 - [ ] If capsule.height <= capsule.radius -> CRASH.

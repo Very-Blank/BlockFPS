@@ -37,6 +37,8 @@ const Bullet = @import("components/Bullet.zig");
 const Grounded = @import("components/Grounded.zig");
 
 const Ecs = @import("ecs.zig").Ecs;
+const Parent = @import("ecs.zig").Parent;
+
 const Template = ecs.Template;
 const SingletonType = ecs.SingletonType;
 
@@ -108,7 +110,7 @@ pub fn main(init: std.process.Init) !void {
 
         ecs_engine.setSingletonsEntity(camera_singleton, camera) catch unreachable;
 
-        ecs_engine.createLink("parent", player_entity, camera, Position{ .y = 0.75 }) catch unreachable;
+        ecs_engine.createLink("follow", player_entity, camera, Position{ .y = 0.75 }) catch unreachable;
     }
 
     try ecs_engine.setSingletonsEntity(spawnp_singleton, ecs_engine.createEntity(.{Position{ .x = 2.0, .y = 2.0, .z = 2.0 }}, &.{}));
@@ -163,18 +165,31 @@ pub fn main(init: std.process.Init) !void {
             rigidbody.velocity.z = 0;
         }
 
-        const links = ecs_engine.getLinks("parent");
-        for (links.data, 0..) |data, i| {
-            const src_position = ecs_engine.getEntityComponent(links.sources[i], Position) orelse unreachable;
-            const dst_position = ecs_engine.getEntityComponent(links.destinations[i], Position) orelse unreachable;
+        {
+            const links = ecs_engine.getLinks("follow");
+            for (links.data, 0..) |data, i| {
+                const src_position = ecs_engine.getEntityComponent(links.sources[i], Position) orelse unreachable;
 
-            if (ecs_engine.getEntityComponent(links.sources[i], Rotation)) |src_rotation| {
-                dst_position.* = src_position.add(data.rotate(src_rotation.*));
+                const dst_position = ecs_engine.getEntityComponent(links.destinations[i], Position) orelse unreachable;
 
-                continue;
+                dst_position.* = src_position.add(data);
             }
+        }
 
-            dst_position.* = src_position.add(data);
+        {
+            const links = ecs_engine.getLinks("parent");
+            for (links.data, 0..) |data, i| {
+                const src = ecs_engine.getEntityComponents(links.sources[i], &.{ Position, Rotation }) orelse unreachable;
+                const src_position: *Position = src[0];
+                const src_rotation: *Rotation = src[1];
+
+                const dst = ecs_engine.getEntityComponents(links.destinations[i], &.{ Position, Rotation }) orelse unreachable;
+                const dst_position: *Position = dst[0];
+                const dst_rotation: *Rotation = dst[1];
+
+                dst_position.* = src_position.add(data.position.rotate(src_rotation.*));
+                dst_rotation.* = src_rotation.multiply(data.rotation);
+            }
         }
 
         // switch (debug_gui.game.mode) {
@@ -240,6 +255,7 @@ pub fn main(init: std.process.Init) !void {
                 while (iterator.next()) |buller| {
                     buller.elapsed += delta_time;
                     if (buller.duration < buller.elapsed) {
+                        std.debug.print("{any}\n", .{iterator.getCurrentEntity()});
                         ecs_engine.destroyEntity(iterator.getCurrentEntity());
                     }
                 }
@@ -438,7 +454,15 @@ pub fn handlePlayerInput(ecs_engine: *Ecs, window: *Window, player_singleton: Si
             Mask.all.remove(&.{.player}),
         )) |hit|
             if (ecs_engine.entityHas(hit.body, Pickable)) {
-                ecs_engine.createLink("parent", camera_entity, hit.body, Position{ .z = -1.0, .y = -0.3, .x = 0.1 }) catch unreachable;
+                ecs_engine.createLink(
+                    "parent",
+                    camera_entity,
+                    hit.body,
+                    Parent{
+                        .position = Position{ .z = -1.5, .y = -0.3, .x = 0.1 },
+                        .rotation = Rotation.identity,
+                    },
+                ) catch unreachable;
             };
 
     if (window.input.mouse_state.left_click == .justPressed) {

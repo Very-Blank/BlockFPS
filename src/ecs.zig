@@ -14,6 +14,8 @@ const Bullet = @import("components/Bullet.zig");
 const Enemy = @import("components/Enemy.zig");
 const Pickable = @import("components/pickable.zig").Pickable;
 
+pub const Parent = struct { position: Position, rotation: Rotation };
+
 pub const Ecs = ecs.Ecs(
     &.{
         ecs.Template{ .components = &.{Position} }, // NOTE: Spawnpoint,
@@ -26,5 +28,8 @@ pub const Ecs = ecs.Ecs(
         ecs.Template{ .components = &.{ Health, Position, Collider, Rigidbody, Grounded } }, // NOTE: Player
         ecs.Template{ .components = &.{ Position, Rotation, Camera } }, // NOTE: Cam
     },
-    &.{.{ .name = "parent", .T = struct { position: Position, rotation: Rotation }, .mode = .destination, .requirments = .{ .components = &.{ Position, Rotation } } }},
+    &.{
+        .{ .name = "parent", .T = Parent, .mode = .source, .requirments = .{ .components = &.{ Position, Rotation } } },
+        .{ .name = "follow", .T = Position, .mode = .source, .requirments = .{ .components = &.{Position} } },
+    },
 );
