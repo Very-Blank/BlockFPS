@@ -5,6 +5,8 @@ List of things to ignore.
 ## TIER 1
 
 - [ ] Seperate the player and camera into two entities.
+  - [x] The implementation.
+  - [ ] Make debuggui work with this implementation.
 
 - [ ] Player
   - [ ] Inventory
